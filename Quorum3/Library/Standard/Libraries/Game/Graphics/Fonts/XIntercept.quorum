@@ -1,0 +1,24 @@
+package Libraries.Game.Graphics.Fonts
+
+use Libraries.Game.Graphics.Fonts.all
+
+class XIntercept 
+    integer yPosition = 0
+    number xIntercept = 0.0
+
+    action SetYPosition(integer position)
+        yPosition = position
+    end
+
+    action SetXIntercept(number position)
+        xIntercept = position
+    end
+
+    action GetYPosition() returns integer
+        return yPosition
+    end
+
+    action GetXIntercept() returns number
+        return xIntercept
+    end
+end

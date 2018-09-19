@@ -36,7 +36,7 @@ class FontDrawable
     integer yMinimum = 0
     /*The height of the drawable from the baseline. Characters may extend
     below the baseline, such as g, so this is different from the drawable's height.*/
-    integer heightFromBaseline = 0
+    number heightFromBaseline = 0
     /*The drawable for a character.*/
     Drawable drawable
 
@@ -61,7 +61,7 @@ class FontDrawable
             end
         end
     */
-    action GetHeightFromBaseline() returns integer
+    action GetHeightFromBaseline() returns number
         return me:heightFromBaseline
     end
 
@@ -86,7 +86,7 @@ class FontDrawable
             end
         end
     */
-    action SetHeightFromBaseline(integer value)
+    action SetHeightFromBaseline(number value)
         heightFromBaseline = value
     end
 

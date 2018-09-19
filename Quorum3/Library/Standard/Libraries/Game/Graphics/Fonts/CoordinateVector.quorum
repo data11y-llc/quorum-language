@@ -27,9 +27,9 @@ Attribute: Example
 */
 class CoordinateVector 
     /*X coordinate position*/
-    integer x = 0
+    number x = 0
     /*Y coordinate position*/
-    integer y = 0
+    number y = 0
 
     /*Whether or not the point lies on a curve.*/
     boolean onCurve = false
@@ -142,7 +142,7 @@ class CoordinateVector
             end
         end
     */
-    action GetX() returns integer
+    action GetX() returns number
         return me:x
     end
 
@@ -167,7 +167,7 @@ class CoordinateVector
             end
         end
     */
-    action GetY() returns integer
+    action GetY() returns number
         return me:y
     end
 
@@ -193,7 +193,7 @@ class CoordinateVector
             end
         end
     */
-    action SetX(integer x)
+    action SetX(number x)
         me:x = x
     end
 
@@ -219,7 +219,7 @@ class CoordinateVector
             end
         end
     */
-    action SetY(integer y)
+    action SetY(number y)
         me:y = y
     end
 

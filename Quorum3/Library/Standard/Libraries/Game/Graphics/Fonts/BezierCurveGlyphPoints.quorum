@@ -340,8 +340,8 @@ class BezierCurveGlyphPoints
     // This action finds the middle point between two coordinate points of the
     // BezierCurveGlyphPoints.
     private action ComputeMiddlePoint(CoordinateVector current, CoordinateVector next) returns CoordinateVector
-        integer x = (current:GetX() + next:GetX())/2
-        integer y = (current:GetY() + next:GetY())/2
+        number x = (current:GetX() + next:GetX())/2
+        number y = (current:GetY() + next:GetY())/2
 
         CoordinateVector newPoint
         newPoint:SetX(x)
@@ -764,6 +764,34 @@ class BezierCurveGlyphPoints
             points:Get(i):SetX(x)
             points:Get(i):SetY(y)
         
+            i = i + 1
+        end
+    end
+
+    action DisplayCoordinates()
+        integer i = 0
+        text t = ""
+
+        repeat while i < points:GetSize()
+            t = t + "(" + points:Get(i):GetX() + ", " + points:Get(i):GetY() + "), "
+
+            i = i + 1
+        end
+
+        output t
+    end
+
+    action ScaleBezierPointsToFontSize(integer fontSize, integer emSize)
+        // make sure to handle compound glyphs at some point
+        integer i = 0
+
+        repeat while i < points:GetSize()
+            CoordinateVector vector = points:Get(i)
+            number x = vector:GetX()
+            number y = vector:GetY()
+            vector:SetX(x * fontSize/emSize)
+            vector:SetY(y * fontSize/emSize)
+
             i = i + 1
         end
     end

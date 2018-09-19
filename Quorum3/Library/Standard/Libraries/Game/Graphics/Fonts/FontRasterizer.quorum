@@ -101,9 +101,9 @@ class FontRasterizer
     /* 
     This action calculates the height of the glyph.
     */
-    private action CalculateGlyphHeight(Array<Line> lines, Array<integer> maximums) returns integer
-        integer lowestPoint = 0
-        integer highestPoint = 0
+    private action CalculateGlyphHeight(Array<Line> lines, Array<number> maximums) returns number
+        number lowestPoint = 0
+        number highestPoint = 0
         Math math
 
         if lines:GetSize() > 0
@@ -129,7 +129,7 @@ class FontRasterizer
             i = i + 1
         end    
         
-        integer height = math:AbsoluteValue(lowestPoint - highestPoint)
+        number height = math:AbsoluteValue(lowestPoint - highestPoint)
         maximums:Add(0, lowestPoint)
         maximums:Add(1, highestPoint)
         return height
@@ -138,9 +138,9 @@ class FontRasterizer
     /*
     This action calculates the width of the glyph.
     */
-    private action CalculateGlyphWidth(Array<Line> lines) returns integer
-        integer leftPoint = 0
-        integer rightPoint = 0
+    private action CalculateGlyphWidth(Array<Line> lines) returns number
+        number leftPoint = 0
+        number rightPoint = 0
         Math math
 
         if lines:GetSize() > 0
@@ -165,7 +165,7 @@ class FontRasterizer
             end
             i = i + 1
         end
-        integer width = math:AbsoluteValue(leftPoint - rightPoint) + 20 // arbitrary addition to fix characters being cut off, not sure what to add here
+        number width = math:AbsoluteValue(leftPoint - rightPoint) + 20 // arbitrary addition to fix characters being cut off, not sure what to add here
         return width
     end
 
@@ -218,15 +218,18 @@ class FontRasterizer
         integer highPoint = CalculateScaledCoordinate(box:GetYMaximum(), pixelSize, information:GetUnitsPerEm()) + 1
         integer lowPoint = CalculateScaledCoordinate(box:GetYMinimum(), pixelSize, information:GetUnitsPerEm()) -1
 
+        output "Inside FontRasterizer, outline has points: "
+        outline:DisplayCoordinates()
+
         Format format = SetupFormat()
         Array<Line> linesToDraw = GetLinesToDraw(outline, emSize)
-        Array<integer> maximums
-        integer height = CalculateGlyphHeight(linesToDraw, maximums) + 1
-        integer heightFromBaseline = highPoint
+        Array<number> maximums
+        number height = CalculateGlyphHeight(linesToDraw, maximums) + 1
+        number heightFromBaseline = highPoint
         PixelMap pixelmap = SetupPixelMap(maximumSizeYAxis, height, format)     // at some point, change the maximumSizeYAxis to use the value calculated by the width function
 
         pixelmap = RenderAntiAliasedOutline(offsetx, offsety, pixelmap, outline, emSize, color, false, maximums)  // draws the glyph outline
-        pixelmap = RenderRasterizedGlyph(offsetx, offsety, pixelmap, outline, color, linesToDraw, maximums) // fills in the glyphs
+        //pixelmap = RenderRasterizedGlyph(offsetx, offsety, pixelmap, outline, color, linesToDraw, maximums) // fills in the glyphs
         
         Texture tex
         tex:FinishLoadingAsynchronously(undefined, pixelmap, format, false, undefined)
@@ -280,7 +283,7 @@ class FontRasterizer
         repeat while i < linesToDraw:GetSize()
             Line line = linesToDraw:Get(i)
 
-            pixelmap:DrawLine(line:GetX1() + offsetx, line:GetY1() - offsety, line:GetX2()+ offsetx, line:GetY2() - offsety, color)
+            //pixelmap:DrawLine(line:GetX1() + offsetx, line:GetY1() - offsety, line:GetX2()+ offsetx, line:GetY2() - offsety, color)
            
             i = i + 1
         end
@@ -364,8 +367,8 @@ class FontRasterizer
         FontBoundingBox boundingBox = outline:GetBoundingBox()
         Color color
 
-        integer yCoord = -1
-        integer xCoord = -1
+        number yCoord = -1
+        number xCoord = -1
 
         Array<integer> endpoints = outline:GetContourEndpoints()
         integer contour = 0
@@ -386,14 +389,14 @@ class FontRasterizer
                 yCoord = CalculateCoordinate (tempVec:GetY(), pixelSize, file:GetUnitsPerEm(), maximumSizeYAxis) -offsety
 
                 CoordinateVector nextPoint = NextPoint(i, contour, vectorArray, endpoints)
-                integer xNext = CalculateCoordinate (nextPoint:GetX(), pixelSize, file:GetUnitsPerEm(), 0) +offsetx
-                integer yNext = CalculateCoordinate (nextPoint:GetY(), pixelSize, file:GetUnitsPerEm(), maximumSizeYAxis) -offsety
+                number xNext = CalculateCoordinate (nextPoint:GetX(), pixelSize, file:GetUnitsPerEm(), 0) +offsetx
+                number yNext = CalculateCoordinate (nextPoint:GetY(), pixelSize, file:GetUnitsPerEm(), maximumSizeYAxis) -offsety
                 if not tempVec:IsOnCurve() and nextPoint:IsOnCurve()
                     // quadratic curve
                     CoordinateVector lastPoint = PreviousPoint(vectorArray, i)
 
-                    integer xPast = CalculateCoordinate (lastPoint:GetX(), pixelSize, file:GetUnitsPerEm(), 0) +offsetx
-                    integer yPast = CalculateCoordinate (lastPoint:GetY(), pixelSize, file:GetUnitsPerEm(), maximumSizeYAxis) -offsety
+                    number xPast = CalculateCoordinate (lastPoint:GetX(), pixelSize, file:GetUnitsPerEm(), 0) +offsetx
+                    number yPast = CalculateCoordinate (lastPoint:GetY(), pixelSize, file:GetUnitsPerEm(), maximumSizeYAxis) -offsety
                     // xPast/yPast are start points of the curve, xCoord/yCoord are control points of the curve, xNext/yNext are end points of the curve
                     DrawFlatCurve(pixelmap, xPast, yPast, xCoord, yCoord, xNext, yNext)
 
@@ -403,7 +406,7 @@ class FontRasterizer
                     // this shouldn't happen because this should be handled while reading the data from file (fill in one point)
                 elseif tempVec:IsOnCurve() and nextPoint:IsOnCurve()
                     // straight line case
-                    pixelmap:DrawLine(xCoord, yCoord, xNext, yNext, color:Yellow())            
+                    //pixelmap:DrawLine(xCoord, yCoord, xNext, yNext, color:Yellow())            
                 end
 
                 i = i + 1
@@ -419,7 +422,7 @@ class FontRasterizer
         called by RenderGlyphOutline (non-anti-aliasing) action to calculate 
         <x, y> coordinate with respect to screen size 
     */
-    private action CalculateCoordinate(integer gridCoordinate, integer pixelSize, integer emSize, integer screenSize) returns integer 
+    private action CalculateCoordinate(number gridCoordinate, integer pixelSize, integer emSize, integer screenSize) returns number 
         if screenSize = 0
            return gridCoordinate * pixelSize / emSize
         end
@@ -603,8 +606,8 @@ class FontRasterizer
                         // quadratic curve
                         CoordinateVector lastPoint = PreviousPoint(vectorArray, j)
 
-                        integer xPast = lastPoint:GetX()
-                        integer yPast = lastPoint:GetY()
+                        number xPast = lastPoint:GetX()
+                        number yPast = lastPoint:GetY()
                         AddAll(lines, GetFlatCurve(xPast, yPast, xCoord, yCoord, xNext, yNext))
 
                     elseif not tempVec:IsOnCurve() and not nextPoint:IsOnCurve()
@@ -660,8 +663,8 @@ class FontRasterizer
                     // quadratic curve
                     CoordinateVector lastPoint = PreviousPoint(vectorArray, i)
 
-                    integer xPast = lastPoint:GetX()
-                    integer yPast = lastPoint:GetY()
+                    number xPast = lastPoint:GetX()
+                    number yPast = lastPoint:GetY()
                     AddAll(lines, GetFlatCurve(xPast, yPast, xCoord, yCoord, xNext, yNext))
 
                 elseif not tempVec:IsOnCurve() and not nextPoint:IsOnCurve()
@@ -695,7 +698,7 @@ class FontRasterizer
     This action takes a curve and flattens it, breaking it into several smaller
     line segments if necessary.
     */
-    private action GetFlatCurve(integer x1, integer y1, integer x2, integer y2, integer x3, integer y3) returns Array<Line>
+    private action GetFlatCurve(number x1, number y1, number x2, number y2, number x3, number y3) returns Array<Line>
         Array<CoordinateVector> vals
         FlatCurveAlgorithm(x1, y1, x2, y2, x3, y3, vals, 0)
         Array<Line> lines
@@ -707,11 +710,11 @@ class FontRasterizer
 
         integer i = 0
         repeat while i < vals:GetSize()
-            integer xCoord = vals:Get(i):GetX()
-            integer yCoord = vals:Get(i):GetY()
+            number xCoord = vals:Get(i):GetX()
+            number yCoord = vals:Get(i):GetY()
             
-            integer xNext = -1
-            integer yNext = -1
+            number xNext = -1
+            number yNext = -1
 
             if i < vals:GetSize() - 1
                 CoordinateVector next = vals:Get(i+1)
@@ -735,19 +738,19 @@ class FontRasterizer
     /*
     This action draws the flattened curves to the pixelmap.
     */
-    private action DrawFlatCurve(PixelMap pixelmap, integer x1, integer y1, integer x2, integer y2, integer x3, integer y3)
+    private action DrawFlatCurve(PixelMap pixelmap, number x1, number y1, number x2, number y2, number x3, number y3)
         Array<CoordinateVector> vals
         FlatCurveAlgorithm(x1, y1, x2, y2, x3, y3, vals, 0)
         Color color
-        pixelmap:DrawLine(x1, y1, vals:Get(0):GetX(), vals:Get(0):GetY(), color:Yellow())
+        //pixelmap:DrawLine(x1, y1, vals:Get(0):GetX(), vals:Get(0):GetY(), color:Yellow())
 
         integer i = 0
         repeat while i < vals:GetSize()
-            integer xCoord = vals:Get(i):GetX()
-            integer yCoord = vals:Get(i):GetY()
+            number xCoord = vals:Get(i):GetX()
+            number yCoord = vals:Get(i):GetY()
             
-            integer xNext = -1
-            integer yNext = -1
+            number xNext = -1
+            number yNext = -1
 
             if i < vals:GetSize() - 1
                 CoordinateVector next = vals:Get(i+1)
@@ -758,7 +761,7 @@ class FontRasterizer
                 yNext = y3
             end
 
-            pixelmap:DrawLine(xCoord, yCoord, xNext, yNext, color:Yellow())
+            //pixelmap:DrawLine(xCoord, yCoord, xNext, yNext, color:Yellow())
         
             i = i + 1 
         end
@@ -800,12 +803,12 @@ class FontRasterizer
     /*
     This action initializes the pixel map used for the glyph.
     */  
-    private action SetupPixelMap(integer width, integer height, Format format) returns PixelMap
+    private action SetupPixelMap(number width, number height, Format format) returns PixelMap
         Color color
         PixelMap map
 
         map:SetColor(color:Black())
-        map:CreatePixelMap(width, height, format)
+        map:CreatePixelMap(cast(integer, width), cast(integer, height), format)
         //map:FillRectangle(0, 0, width, height, color:CustomColor(1, 1, 1, 0.2))   // used for debugging to see the size of the pixelmap
 
         return map

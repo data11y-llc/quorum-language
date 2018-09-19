@@ -1,0 +1,252 @@
+package Libraries.Game.Graphics.Fonts
+
+use Libraries.Containers.Array
+use Libraries.Compute.Math
+use Libraries.Game.Graphics.Fonts.all
+
+class GlyphOutlineEdge
+    Math math
+    Array<integer> scanlines
+    Array<XIntercept> scanlineIntercepts
+    number startXPosition = 0
+    number startYPosition = 0
+    number endXPosition = 0
+    number endYPosition = 0
+    number controlXPosition = 0
+    number controlYPosition = 0
+    integer yMinimum = 0
+    integer yMaximum = 0
+    boolean isBezierCurve = false
+    boolean isAscending = false
+    boolean isHorizontal = false
+    boolean isVertical = false
+    number slope = 0.0
+    number yIntercept = 0.0
+    boolean movingLeftToRight = false
+
+    action GetMovingLeftToRight() returns boolean
+        return movingLeftToRight
+    end
+
+    action GetSlope() returns number
+        return slope
+    end
+
+    action GetYIntercept() returns number
+        return yIntercept
+    end
+
+    action SetStartXPosition(number position)
+        startXPosition = position
+    end
+
+    action SetStartYPosition(number position)
+        startYPosition = position
+    end
+
+    action SetEndXPosition(number position)
+        endXPosition = position
+    end
+
+    action SetEndYPosition(number position)
+        endYPosition = position
+    end
+
+    action SetControlXPosition(number position)
+        controlXPosition = position
+    end
+
+    action SetControlYPosition(number position)
+        controlYPosition = position
+    end
+
+    action SetYMinimum(integer value)
+        yMinimum = value
+    end
+
+    action SetYMaximum(integer value)
+        yMaximum = value
+    end
+
+    action SetIsBezierCurve(boolean flag)
+        isBezierCurve = flag
+    end
+
+    action SetIsAscending(boolean flag)
+        isAscending = flag
+    end
+
+    action SetIsHorizontal(boolean flag)
+        isHorizontal = flag
+    end
+
+    action GetStartXPosition() returns number
+        return startXPosition
+    end
+
+    action GetStartYPosition() returns number
+        return startYPosition
+    end
+
+    action GetEndXPosition() returns number
+        return endXPosition
+    end 
+
+    action GetEndYPosition() returns number
+        return endYPosition
+    end
+
+    action GetControlXPosition() returns number
+        return controlXPosition
+    end
+
+    action GetControlYPosition() returns number
+        return controlYPosition
+    end
+
+    action GetYMinimum() returns integer
+        return yMinimum
+    end
+
+    action GetYMaximum() returns integer
+        return yMaximum
+    end
+
+    action GetIsBezierCurve() returns boolean
+        return isBezierCurve
+    end
+
+    action GetIsAscending() returns boolean
+        return isAscending
+    end
+
+    action GetIsHorizontal() returns boolean
+        return isHorizontal
+    end 
+
+    action GetScanlines() returns Array<integer>
+        return scanlines
+    end
+
+    action GetScanlineIntercepts() returns Array<XIntercept>
+        return scanlineIntercepts
+    end
+
+    // finds which y coordinates the edge intersects with
+    action CalculateScanlines()
+        number minimum = 0
+        number maximum = 0
+        integer scanlinePosition = 0
+
+        if isAscending  // line starts from lower y position and moves to higher one
+            maximum = math:Floor(endYPosition)
+            minimum = math:Floor(startYPosition)
+        else        // line starts from higher y position and moves to lower one
+            maximum = math:Floor(startYPosition)
+            minimum = math:Floor(endYPosition)
+        end
+
+        yMinimum = cast(integer, minimum)
+        yMaximum = cast(integer, maximum)
+        scanlinePosition = cast(integer, minimum)
+        //output "Ymin: " + yMinimum + ", YMax: " + yMaximum + ", scanlinePos: " + scanlinePosition
+
+        repeat while scanlinePosition <= maximum
+            scanlines:Add(scanlinePosition)
+
+            scanlinePosition = scanlinePosition + 1
+        end
+
+        /*
+        integer i = 0
+
+        text t = ""
+        repeat while i < scanlines:GetSize()
+            t = t + ", " +  scanlines:Get(i)
+        
+            i = i + 1
+        end
+        output "This edge falls on the following scanlines: " + t
+        */
+    end
+
+    // determines if the edge is ascending or descending
+    action CalculateAscending()
+        if startYPosition < endYPosition
+            isAscending = true
+            isHorizontal = false
+        elseif startYPosition > endYPosition
+            isAscending = false
+            isHorizontal = false
+        else    // horizontal case
+            isAscending = false
+            isHorizontal = true
+        end
+    end
+
+    // sets the start x/y, end x/y and then if the edge is ascending, and finds scanlines that intersect it
+    action CreateEdge(CoordinateVector startPoint, CoordinateVector endPoint)
+        startXPosition = startPoint:GetX()
+        startYPosition = startPoint:GetY()
+        endXPosition = endPoint:GetX()
+        endYPosition = endPoint:GetY()
+        CalculateAscending()
+        CalculateVertical()
+        CalculateMovingLeftToRight()
+        CalculateScanlines()
+        CalculateSlopeAndYIntercept()
+    end
+
+    // finds the intersection point on the edge for the given scanline
+    action CalculateSlopeAndYIntercept()
+        integer i = 0
+        if not isHorizontal
+            if not isVertical
+                slope = (endYPosition-startYPosition)/(endXPosition-startXPosition)
+            end
+            yIntercept = startYPosition - slope * startXPosition
+            /*
+            repeat while i < scanlines:GetSize()
+                XIntercept x
+                number intercept = 0.0
+                integer y = scanlines:Get(i)
+                x:SetYPosition(y)
+                if isVertical   // straight up and down line, it intersects it at the x value
+                    intercept = startXPosition
+                elseif isHorizontal // horizontal line, slope = 0. need to handle these specially
+
+                else // some kind of slanted line, use linear equation to solve for x
+                    intercept = (y-yIntercept)/slope
+                end
+                x:SetXIntercept(intercept)
+
+                scanlineIntercepts:Add(x)
+
+                output "For scanline " + y + " the x intercept is: " + intercept
+
+                i = i + 1
+            end
+            */
+        end    
+    end
+
+    action CalculateVertical()
+        if endXPosition - startXPosition = 0    // vertical line
+            isVertical = true
+        else
+            isVertical = false
+        end
+    end
+
+    action CalculateMovingLeftToRight()
+        if startXPosition < endXPosition
+            movingLeftToRight = true
+        else
+            movingLeftToRight = false
+        end
+    end
+    
+    action GetIsVertical() returns boolean
+        return isVertical
+    end
+end

@@ -36,13 +36,13 @@ Attribute: Example
 */
 class Line 
     /*The starting x-coordinate of the line.*/
-    integer x1 = -1
+    number x1 = -1
     /*The ending x-coordinate of the line.*/
-    integer x2 = -1
+    number x2 = -1
     /*The starting y-coordinate of the line.*/
-    integer y1 = -1
+    number y1 = -1
     /*The ending y-coordinate of the line.*/
-    integer y2 = -1
+    number y2 = -1
 
     /*
     This action computes the nonzero value of the line. This may need to be
@@ -102,10 +102,10 @@ class Line
     action GetXInterceptsNumber(integer xPixelSize, integer yPixelSize, integer unitsPerEM, integer yScreenSize, integer oldNonZero) returns HashTable<integer, XCoordinateList>
         Math math
         
-        integer pixelX1 = CalculateCoordinate(x1, xPixelSize, unitsPerEM, 0)   
-        integer pixelX2 = CalculateCoordinate(x2, xPixelSize, unitsPerEM, 0)
-        integer pixelY1 = CalculateCoordinate(y1, yPixelSize, unitsPerEM, yScreenSize)
-        integer pixelY2 = CalculateCoordinate(y2, yPixelSize, unitsPerEM, yScreenSize)
+        number pixelX1 = CalculateCoordinate(x1, xPixelSize, unitsPerEM, 0)   
+        number pixelX2 = CalculateCoordinate(x2, xPixelSize, unitsPerEM, 0)
+        number pixelY1 = CalculateCoordinate(y1, yPixelSize, unitsPerEM, yScreenSize)
+        number pixelY2 = CalculateCoordinate(y2, yPixelSize, unitsPerEM, yScreenSize)
         
         /*
         // CalculateCoordinateNumber is causing anomalies in the text appearance, can revert back to CalculateCoordinate
@@ -134,7 +134,7 @@ class Line
        Bresenham's line algorithm to calculate x intercepts
        multi purpose from http://tech-algorithm.com/articles/drawing-line-using-bresenham-algorithm/
     */ 
-    private action BresenhamLineAlgorithm (integer x1, integer y1, integer x2, integer y2) returns HashTable<integer, XCoordinateList>
+    private action BresenhamLineAlgorithm (number x1, number y1, number x2, number y2) returns HashTable<integer, XCoordinateList>
         HashTable<integer, XCoordinateList> intercepts
         Math math
 
@@ -376,11 +376,11 @@ class Line
             end
         end
     */
-    public action CalculateCoordinate(integer gridCoordinate, integer pixelSize, integer emSize, integer screenSize) returns integer
+    public action CalculateCoordinate(number gridCoordinate, integer pixelSize, integer emSize, integer screenSize) returns number
         if screenSize = 0
             return gridCoordinate * pixelSize / emSize
         end
-        integer coordinate = screenSize - gridCoordinate * pixelSize / emSize
+        number coordinate = screenSize - gridCoordinate * pixelSize / emSize
         return coordinate
     end
 
@@ -446,7 +446,7 @@ class Line
             end
         end 
     */
-    action SetPoint1(integer x, integer y)
+    action SetPoint1(number x, number y)
         me:x1 = x
         me:y1 = y
     end
@@ -474,7 +474,7 @@ class Line
             end
         end
     */  
-    action SetPoint2(integer x, integer y)
+    action SetPoint2(number x, number y)
         me:x2 = x
         me:y2 = y
     end
@@ -500,7 +500,7 @@ class Line
             end
         end 
     */
-    action SetX1(integer x) 
+    action SetX1(number x) 
         me:x1 = x
     end
 
@@ -525,7 +525,7 @@ class Line
             end
         end
     */
-    action GetX1() returns integer
+    action GetX1() returns number
         return me:x1
     end
 
@@ -550,7 +550,7 @@ class Line
             end
         end
     */
-    action SetX2(integer x) 
+    action SetX2(number x) 
         me:x2 = x
     end
 
@@ -575,7 +575,7 @@ class Line
             end
         end 
     */
-    action GetX2() returns integer
+    action GetX2() returns number
         return me:x2
     end
 
@@ -600,7 +600,7 @@ class Line
             end
         end 
     */
-    action SetY1(integer y) 
+    action SetY1(number y) 
         me:y1 = y
     end
 
@@ -625,7 +625,7 @@ class Line
             end
         end
     */
-    action GetY1() returns integer
+    action GetY1() returns number
         return me:y1
     end
 
@@ -650,7 +650,7 @@ class Line
             end
         end
     */
-    action SetY2(integer y) 
+    action SetY2(number y) 
         me:y2 = y
     end
 
@@ -675,7 +675,7 @@ class Line
             end
         end 
     */
-    action GetY2() returns integer
+    action GetY2() returns number
         return me:y2
     end
     
