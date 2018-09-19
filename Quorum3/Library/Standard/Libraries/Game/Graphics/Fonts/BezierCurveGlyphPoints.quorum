@@ -795,4 +795,15 @@ class BezierCurveGlyphPoints
             i = i + 1
         end
     end
+
+    action DisplayOnCurvePoints()
+        integer i = 0
+        repeat while i < points:GetSize()
+            CoordinateVector vector = points:Get(i)
+
+            output "Point is on curve? " + vector:IsOnCurve()
+
+            i = i + 1
+        end
+    end
 end

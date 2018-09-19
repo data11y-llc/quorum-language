@@ -774,7 +774,7 @@ class QuorumStrategy is FontStrategy
             glyph:drawable = glyphDrawable:GetDrawable()
             glyph:horizontalAdvance = horizontalAdvance
             glyph:verticalAdvance = verticalAdvance
-            glyph:heightFromBaseLine = heightFromBaseLine
+            glyph:heightFromBaseLine = cast(integer, heightFromBaseLine)
             glyph:lengthToGlyph = horizontalOffset
 
             glyphTable:Add(character, glyph)

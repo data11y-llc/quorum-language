@@ -23,6 +23,11 @@ class GlyphOutlineEdge
     number slope = 0.0
     number yIntercept = 0.0
     boolean movingLeftToRight = false
+    number firstXPositionOfEdge = 0
+
+    action GetFirstXPositionOfEdge() returns number
+        return firstXPositionOfEdge
+    end
 
     action GetMovingLeftToRight() returns boolean
         return movingLeftToRight
@@ -136,14 +141,37 @@ class GlyphOutlineEdge
     action CalculateScanlines()
         number minimum = 0
         number maximum = 0
+        number lowerThreshold = 0.25
+        number upperThreshold = 0.75
         integer scanlinePosition = 0
+        integer startYInteger = cast(integer, math:Floor(startYPosition))
+        integer endYInteger = cast(integer, math:Floor(endYPosition))
 
         if isAscending  // line starts from lower y position and moves to higher one
-            maximum = math:Floor(endYPosition)
-            minimum = math:Floor(startYPosition)
+            if startYPosition - startYInteger < upperThreshold
+                minimum = startYInteger
+            else
+                minimum = startYInteger + 1
+            end
+
+            if endYPosition - endYInteger < lowerThreshold
+                maximum = endYInteger - 1
+            else
+                maximum = endYInteger
+            end
+
         else        // line starts from higher y position and moves to lower one
-            maximum = math:Floor(startYPosition)
-            minimum = math:Floor(endYPosition)
+            if startYPosition - startYInteger < lowerThreshold
+                maximum = startYInteger - 1
+            else
+                maximum = startYInteger
+            end
+
+            if endYPosition - endYInteger < upperThreshold
+                minimum = endYInteger
+            else    
+                minimum = endYInteger + 1
+            end
         end
 
         yMinimum = cast(integer, minimum)
@@ -195,6 +223,15 @@ class GlyphOutlineEdge
         CalculateMovingLeftToRight()
         CalculateScanlines()
         CalculateSlopeAndYIntercept()
+        CalculateFirstXPositionOfEdge()
+    end
+
+    action CalculateFirstXPositionOfEdge()
+        if movingLeftToRight    // start x coordinate is first x
+            firstXPositionOfEdge = startXPosition
+        else        // end x coordinate is first x
+            firstXPositionOfEdge = endXPosition
+        end
     end
 
     // finds the intersection point on the edge for the given scanline
@@ -248,5 +285,13 @@ class GlyphOutlineEdge
     
     action GetIsVertical() returns boolean
         return isVertical
+    end
+    
+    action ToText()
+        output "This edge begins at: (" + startXPosition + ", " + startYPosition + ") and ends at: (" + endXPosition + ", " + endYPosition + ")."
+        output "It is ascending: " + isAscending
+        output "It is vertical: " + isVertical
+        output "It is horizontal: " + isHorizontal
+        output "It spans from " + yMinimum + " to " + yMaximum + "."
     end
 end

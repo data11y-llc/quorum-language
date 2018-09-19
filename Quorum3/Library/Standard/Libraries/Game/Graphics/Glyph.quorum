@@ -23,7 +23,7 @@ class Glyph
     public integer lengthToGlyph = 0
 
     /* How tall the glyph is, relative to the font's base line. */
-    public number heightFromBaseLine = 0
+    public integer heightFromBaseLine = 0
 
     /*
     This action takes the current glyph and returns a new glyph that has all of
