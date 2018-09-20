@@ -3,6 +3,7 @@ package Libraries.Game.Graphics.Fonts
 use Libraries.Containers.Array
 use Libraries.Compute.Math
 use Libraries.Game.Graphics.Fonts.all
+use Libraries.Language.Support.CompareResult
 
 class GlyphOutlineEdge
     Math math
@@ -23,10 +24,48 @@ class GlyphOutlineEdge
     number slope = 0.0
     number yIntercept = 0.0
     boolean movingLeftToRight = false
-    number firstXPositionOfEdge = 0
+    number currentXPosition = 0.0
+    integer currentYPosition = yMinimum
 
-    action GetFirstXPositionOfEdge() returns number
-        return firstXPositionOfEdge
+    // used to sort the active edge list by ascending x values
+    action Compare(Object object) returns CompareResult
+        CompareResult result
+        if object is GlyphOutlineEdge
+            GlyphOutlineEdge edge = cast(GlyphOutlineEdge, object)
+            if currentXPosition > edge:GetCurrentXPosition()
+                result:result = result:LARGER
+            elseif currentXPosition < edge:GetCurrentXPosition()
+                result:result = result:SMALLER
+            else
+                result:result = result:EQUAL
+            end
+            return result
+        else
+            return parent:Object:Compare(object)
+        end
+    end
+
+    action GetCurrentXPosition() returns number
+        return currentXPosition
+    end
+
+    action CalculateCurrentXPosition()
+        // y = mx + b => (y-b)/m = x
+        if slope not= 0 and not isVertical // not vertical and not horizontal
+            currentXPosition = (currentYPosition - yIntercept) / slope
+        elseif isVertical
+            currentXPosition = startXPosition
+        // horizontal edges aren't processed
+        end
+    end
+    
+    action UpdateCurrentXPosition()
+        if slope not= 0 and not isVertical // not vertical and not horizontal
+            currentYPosition = currentYPosition + 1
+            if currentYPosition <= yMaximum
+                currentXPosition = (currentYPosition - yIntercept) / slope
+            end
+        end
     end
 
     action GetMovingLeftToRight() returns boolean
@@ -159,7 +198,8 @@ class GlyphOutlineEdge
             else
                 maximum = endYInteger
             end
-
+            minimum = math:Floor(startYPosition)
+            maximum = math:Floor(endYPosition)
         else        // line starts from higher y position and moves to lower one
             if startYPosition - startYInteger < lowerThreshold
                 maximum = startYInteger - 1
@@ -172,6 +212,8 @@ class GlyphOutlineEdge
             else    
                 minimum = endYInteger + 1
             end
+            minimum = math:Floor(endYPosition)
+            maximum = math:Floor(startYPosition)
         end
 
         yMinimum = cast(integer, minimum)
@@ -222,16 +264,8 @@ class GlyphOutlineEdge
         CalculateVertical()
         CalculateMovingLeftToRight()
         CalculateScanlines()
-        CalculateSlopeAndYIntercept()
-        CalculateFirstXPositionOfEdge()
-    end
-
-    action CalculateFirstXPositionOfEdge()
-        if movingLeftToRight    // start x coordinate is first x
-            firstXPositionOfEdge = startXPosition
-        else        // end x coordinate is first x
-            firstXPositionOfEdge = endXPosition
-        end
+        CalculateSlopeAndYIntercept()   
+        CalculateCurrentXPosition()
     end
 
     // finds the intersection point on the edge for the given scanline
