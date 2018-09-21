@@ -25,7 +25,12 @@ class GlyphOutlineEdge
     number yIntercept = 0.0
     boolean movingLeftToRight = false
     number currentXPosition = 0.0
-    integer currentYPosition = yMinimum
+    integer currentYPosition = 0
+    integer edgeNumber = 0
+
+    action GetEdgeNumber() returns integer
+        return edgeNumber
+    end
 
     // used to sort the active edge list by ascending x values
     action Compare(Object object) returns CompareResult
@@ -226,7 +231,7 @@ class GlyphOutlineEdge
 
             scanlinePosition = scanlinePosition + 1
         end
-
+        currentYPosition = yMinimum
         /*
         integer i = 0
 
@@ -255,11 +260,12 @@ class GlyphOutlineEdge
     end
 
     // sets the start x/y, end x/y and then if the edge is ascending, and finds scanlines that intersect it
-    action CreateEdge(CoordinateVector startPoint, CoordinateVector endPoint)
+    action CreateEdge(CoordinateVector startPoint, CoordinateVector endPoint, integer newEdgeNumber)
         startXPosition = startPoint:GetX()
         startYPosition = startPoint:GetY()
         endXPosition = endPoint:GetX()
         endYPosition = endPoint:GetY()
+        edgeNumber = newEdgeNumber
         CalculateAscending()
         CalculateVertical()
         CalculateMovingLeftToRight()
