@@ -27,6 +27,7 @@ class GlyphOutlineEdge
     number currentXPosition = 0.0
     integer currentYPosition = 0
     integer edgeNumber = 0
+    boolean isYMonotonic = false
 
     action GetEdgeNumber() returns integer
         return edgeNumber
@@ -56,11 +57,22 @@ class GlyphOutlineEdge
 
     action CalculateCurrentXPosition()
         // y = mx + b => (y-b)/m = x
-        if slope not= 0 and not isVertical // not vertical and not horizontal
-            currentXPosition = (currentYPosition - yIntercept) / slope
-        elseif isVertical
-            currentXPosition = startXPosition
-        // horizontal edges aren't processed
+        if not isBezierCurve
+            if slope not= 0 and not isVertical // not vertical and not horizontal
+                currentXPosition = (currentYPosition - yIntercept) / slope
+            elseif isVertical
+                currentXPosition = startXPosition
+            // horizontal edges aren't processed
+            end
+        else    // bezier curve case
+            // two ways: create two look-up tables and binary search the y values 
+            // to find the intercept I need. This uses the weighted Bezier curve
+            // formula. FreeType does not do it this way?
+            // second way: FreeType subdivides the arc into smaller Bezier arcs
+            // until the subdivision is too small to cross more than one span line
+            // Need to think about pros and cons of both approaches and pick one
+            // Not sure how you would find the x-intercept of an even smaller
+            // Bezier curve without usiing the weighted formula?
         end
     end
     
@@ -272,6 +284,43 @@ class GlyphOutlineEdge
         CalculateScanlines()
         CalculateSlopeAndYIntercept()   
         CalculateCurrentXPosition()
+    end
+
+    action CalculateIsYMonotonic()
+        if startYPosition = controlYPosition and controlYPosition = endYPosition    // "flat" arc
+            isYMonotonic = true
+            isAscending = false
+            isHorizontal = true
+            isVertical = false
+        elseif startYPosition <= controlYPosition and controlYPosition <= endYPosition  // ever-ascending arc
+            isYMonotonic = true
+            isAscending = true
+            isHorizontal = false
+            isVertical = false
+        elseif startYPosition >= controlYPosition and controlYPosition >= endYPosition  // ever-descending arc
+            isYMonotonic = true
+            isAscending = false
+            isHorizontal = false
+            isVertical = false
+        else    // non-monotonic arc
+            isYMonotonic = false
+        end
+    end
+
+    action CreateBezierEdge(CoordinateVector startPoint, CoordinateVector endPoint, CoordinateVector controlPoint, integer newEdgeNumber)
+        startXPosition = startPoint:GetX()
+        startYPosition = startPoint:GetY()
+        endXPosition = endPoint:GetX()
+        endYPosition = endPoint:GetY()
+        controlXPosition = controlPoint:GetX()
+        controlYPosition = controlPoint:GetY()
+        edgeNumber = newEdgeNumber
+        CalculateIsYMonotonic()
+        CalculateMovingLeftToRight()
+        if isYMonotonic
+            CalculateScanlines()
+            CalculateCurrentXPosition()
+        end
     end
 
     // finds the intersection point on the edge for the given scanline
