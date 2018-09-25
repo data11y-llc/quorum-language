@@ -801,7 +801,7 @@ class BezierCurveGlyphPoints
         repeat while i < points:GetSize()
             CoordinateVector vector = points:Get(i)
 
-            output "Point is on curve? " + vector:IsOnCurve()
+            output "Point index: " + i + ", on curve? " + vector:IsOnCurve() + ", endpoint? " + vector:IsEndpoint()
 
             i = i + 1
         end

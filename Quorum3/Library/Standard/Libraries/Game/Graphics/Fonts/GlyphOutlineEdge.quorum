@@ -73,15 +73,154 @@ class GlyphOutlineEdge
             // Need to think about pros and cons of both approaches and pick one
             // Not sure how you would find the x-intercept of an even smaller
             // Bezier curve without usiing the weighted formula?
+            
+            currentXPosition = FindBezierCurveXIntercept()
+
         end
     end
     
-    action UpdateCurrentXPosition()
-        if slope not= 0 and not isVertical // not vertical and not horizontal
-            currentYPosition = currentYPosition + 1
-            if currentYPosition <= yMaximum
-                currentXPosition = (currentYPosition - yIntercept) / slope
+    action FindBezierCurveXIntercept() returns number
+        // General algorithm idea:
+        // Subdivide the Bezier curve into two smaller Bezier curves.
+        // Discard the one that does not fit the current y scanline.
+        // Continue the process until you have a Bezier curve where both endpoints have y values that are equal to the scanline.
+        // Treat this curve as a straight line, calculate x-intercept of it.
+        
+        // currentYPosition is the first scanline for the edge
+        Math math
+        boolean foundSubCurve = false
+        number xIntercept = 0.0
+        number Q1x = 0.0
+        number Q1y = 0.0
+        number Q2x = 0.0
+        number Q2y = 0.0
+        number Q3x = 0.0
+        number Q3y = 0.0
+        number R1x = 0.0
+        number R1y = 0.0
+        number R2x = 0.0
+        number R2y = 0.0
+        number R3x = 0.0
+        number R3y = 0.0
+        number P1x = startXPosition
+        number P1y = startYPosition
+        number P2x = controlXPosition
+        number P2y = controlYPosition
+        number P3x = endXPosition
+        number P3y = endYPosition
+
+        number subEdgeStartX = 0.0
+        number subEdgeStartY = 0.0
+        number subEdgeEndX = 0.0
+        number subEdgeEndY = 0.0
+
+        repeat while foundSubCurve = false
+            //output "Inside while subcurve not found"
+            //output "CurrentYPosition: " + currentYPosition
+            // Given a Bezier curve P1, P2, P3, two subarcs, Q1, Q2, Q3 and R1, R2, R3, are defined as follows:
+            // Q1 = P1, Q2 = (P1+P2)/2, Q3 = R1 = (Q2+R2)/2, R3 = P3, R2 = (P2+P3)/2
+            
+            // create new Bezier curves
+            Q1x = P1x
+            Q1y = P1y
+            Q2x = (P1x + P2x)/2
+            Q2y = (P1y + P2y)/2
+            R3x = P3x
+            R3y = P3y
+            R2x = (P2x + P3x)/2
+            R2y = (P2y + P3y)/2
+            Q3x = (Q2x + R2x)/2
+            Q3y = (Q2y + R2y)/2
+            R1x = Q3x
+            R1y = Q3y
+
+            //output "CurrentYPosition: " + currentYPosition
+            //output "Q1x: " + Q1x + ", Q1y: " + Q1y + ", Q2x: " + Q2x + ", Q2y: " + Q2y + ", Q3x: " + Q3x + ", Q3y: " + Q3y
+            //output "R1x: " + R1x + ", R1y: " + R1y + ", R2x: " + R2x + ", R2y: " + R2y + ", R3x: " + R3x + ", R3y: " + R3y
+            //output "P1x: " + P1x + ", P1y: " + P1y + ", P2x: " + P2x + ", P2y: " + P2y + ", P3x: " + P3x + ", P3y: " + P3y
+
+            // check if one of the subdivisions has been found
+            if math:Floor(Q1y) = currentYPosition and math:Floor(Q3y) = currentYPosition
+                //output "Found"
+                foundSubCurve = true
+                subEdgeStartX = Q1x
+                subEdgeStartY = Q1y
+                subEdgeEndX = Q3x
+                subEdgeEndY = Q3y
+            elseif math:Floor(R1y) = currentYPosition and math:Floor(R3y) = currentYPosition
+                //output "Found"
+                foundSubCurve = true
+                subEdgeStartX = R1x
+                subEdgeStartY = R1y
+                subEdgeEndX = R3x
+                subEdgeEndY = R3y
+            else    // not found, have to subdivide
+                if isAscending
+                    //output "In ascending case"
+                    if currentYPosition >= math:Floor(Q1y) and currentYPosition <= math:Floor(Q3y)  // covered by first subarc
+                        //output "In first subarc case"
+                        P1x = Q1x
+                        P1y = Q1y
+                        P2x = Q2x
+                        P2y = Q2y
+                        P3x = Q3x
+                        P3y = Q3y
+                    else        // covered by second subarc
+                        //output "In second subarc case"
+                        P1x = R1x
+                        P1y = R1y
+                        P2x = R2x
+                        P2y = R2y
+                        P3x = R3x
+                        P3y = R3y
+                    end
+                else
+                    //output "In descending case"
+                    if currentYPosition <= math:Floor(Q1y) and currentYPosition >= math:Floor(Q3y)  // covered by first subarc
+                        //output "In first subarc case"
+                        P1x = Q1x
+                        P1y = Q1y
+                        P2x = Q2x
+                        P2y = Q2y
+                        P3x = Q3x
+                        P3y = Q3y  
+                    else        // covered by second subarc
+                        //output "In second subarc case"
+                        P1x = R1x
+                        P1y = R1y
+                        P2x = R2x
+                        P2y = R2y
+                        P3x = R3x
+                        P3y = R3y
+                    end
+                end
             end
+        end
+
+        // have subarc that falls on the scanline, find its intercept
+            number newSlope = (subEdgeEndY-subEdgeStartY)/(subEdgeEndX-subEdgeStartX)
+            number newYIntercept = subEdgeStartY - newSlope * subEdgeStartX
+                
+        xIntercept = (currentYPosition - newYIntercept) / newSlope
+        //output "XIntercept is: " + xIntercept
+
+        return xIntercept
+    end
+
+    action ResetCurrentYPosition()
+        currentYPosition = yMinimum
+    end
+
+    action UpdateCurrentXPosition()
+        currentYPosition = currentYPosition + 1
+        if not isBezierCurve
+            if slope not= 0 and not isVertical // not vertical and not horizontal
+                if currentYPosition <= yMaximum
+                    currentXPosition = (currentYPosition - yIntercept) / slope
+                end
+            end
+        else    // bezier curve case
+            currentXPosition = FindBezierCurveXIntercept()
         end
     end
 
