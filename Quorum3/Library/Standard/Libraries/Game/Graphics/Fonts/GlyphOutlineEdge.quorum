@@ -9,6 +9,7 @@ class GlyphOutlineEdge
     Math math
     Array<integer> scanlines
     Array<XIntercept> scanlineIntercepts
+    Array<number> bezierCurveXIntercepts
     number startXPosition = 0
     number startYPosition = 0
     number endXPosition = 0
@@ -28,9 +29,37 @@ class GlyphOutlineEdge
     integer currentYPosition = 0
     integer edgeNumber = 0
     boolean isYMonotonic = false
+    number subEdgeStartX = 0.0
+    number subEdgeStartY = 0.0
+    number subEdgeEndX = 0.0
+    number subEdgeEndY = 0.0
+
+    action GetSubEdgeStartX() returns number
+        return subEdgeStartX
+    end
+
+    action GetSubEdgeStartY() returns number
+        return subEdgeStartY
+    end
+
+    action GetSubEdgeEndX() returns number
+        return subEdgeEndX
+    end
+
+    action GetSubEdgeEndY() returns number
+        return subEdgeEndY
+    end
+
+    action GetBezierCurveXIntercepts() returns Array<number>
+        return bezierCurveXIntercepts
+    end
 
     action GetEdgeNumber() returns integer
         return edgeNumber
+    end
+
+    action GetIsYMonotonic() returns boolean
+        return isYMonotonic
     end
 
     // used to sort the active edge list by ascending x values
@@ -74,19 +103,34 @@ class GlyphOutlineEdge
             // Not sure how you would find the x-intercept of an even smaller
             // Bezier curve without usiing the weighted formula?
             
-            currentXPosition = FindBezierCurveXIntercept()
+            FindBezierCurveXIntercepts()
 
         end
     end
     
-    action FindBezierCurveXIntercept() returns number
+    action FindBezierCurveXIntercepts()
         // General algorithm idea:
         // Subdivide the Bezier curve into two smaller Bezier curves.
         // Discard the one that does not fit the current y scanline.
         // Continue the process until you have a Bezier curve where both endpoints have y values that are equal to the scanline.
         // Treat this curve as a straight line, calculate x-intercept of it.
         
-        // currentYPosition is the first scanline for the edge
+        /*
+        if isAscending
+            if currentYPosition = yMinimum
+                return startXPosition
+            elseif currentYPosition = yMaximum
+                return endXPosition
+            end
+        else
+            if currentYPosition = yMinimum
+                return endXPosition
+            elseif currentYPosition = yMaximum
+                return startXPosition
+            end
+        end
+        */
+
         Math math
         boolean foundSubCurve = false
         number xIntercept = 0.0
@@ -108,11 +152,6 @@ class GlyphOutlineEdge
         number P2y = controlYPosition
         number P3x = endXPosition
         number P3y = endYPosition
-
-        number subEdgeStartX = 0.0
-        number subEdgeStartY = 0.0
-        number subEdgeEndX = 0.0
-        number subEdgeEndY = 0.0
 
         repeat while foundSubCurve = false
             //output "Inside while subcurve not found"
@@ -197,14 +236,33 @@ class GlyphOutlineEdge
             end
         end
 
-        // have subarc that falls on the scanline, find its intercept
-            number newSlope = (subEdgeEndY-subEdgeStartY)/(subEdgeEndX-subEdgeStartX)
-            number newYIntercept = subEdgeStartY - newSlope * subEdgeStartX
-                
-        xIntercept = (currentYPosition - newYIntercept) / newSlope
-        //output "XIntercept is: " + xIntercept
+        // have subarc that falls on the scanline, find its intercepts
+        // treat it as a straight line, add all x values falling on this y
+        Array<number> newIntercepts
+        number newSlope = (subEdgeEndY-subEdgeStartY)/(subEdgeEndX-subEdgeStartX)
+        number newYIntercept = subEdgeStartY - newSlope * subEdgeStartX
 
-        return xIntercept
+        number startX = 0
+        number endX = 0
+
+        if subEdgeStartX < subEdgeEndX
+            startX = subEdgeStartX
+            endX = subEdgeEndX
+        elseif subEdgeStartX > subEdgeEndX
+            startX = subEdgeEndX
+            endX = subEdgeStartX
+        else
+            startX = subEdgeStartX
+            endX = subEdgeEndX
+        end
+
+        repeat while math:Floor(startX) < math:Floor(endX)
+            newIntercepts:Add(startX)
+            startX = startX + 1
+        end
+        newIntercepts:Add(endX)
+        //xIntercept = (subEdgeStartY - newYIntercept) / newSlope
+        bezierCurveXIntercepts = newIntercepts
     end
 
     action ResetCurrentYPosition()
@@ -220,7 +278,7 @@ class GlyphOutlineEdge
                 end
             end
         else    // bezier curve case
-            currentXPosition = FindBezierCurveXIntercept()
+            FindBezierCurveXIntercepts()
         end
     end
 
