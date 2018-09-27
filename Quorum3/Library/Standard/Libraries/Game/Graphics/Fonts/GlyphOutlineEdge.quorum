@@ -263,6 +263,8 @@ class GlyphOutlineEdge
         newIntercepts:Add(endX)
         //xIntercept = (subEdgeStartY - newYIntercept) / newSlope
         bezierCurveXIntercepts = newIntercepts
+        currentXPosition = bezierCurveXIntercepts:GetFromFront()
+        //output "End of finding Bezier intercepts"
     end
 
     action ResetCurrentYPosition()
@@ -271,14 +273,19 @@ class GlyphOutlineEdge
 
     action UpdateCurrentXPosition()
         currentYPosition = currentYPosition + 1
+        //output "Update current x. current y is: " + currentYPosition + " and max y is: " + yMaximum
         if not isBezierCurve
             if slope not= 0 and not isVertical // not vertical and not horizontal
-                if currentYPosition <= yMaximum
+                if currentYPosition < yMaximum
                     currentXPosition = (currentYPosition - yIntercept) / slope
                 end
             end
         else    // bezier curve case
-            FindBezierCurveXIntercepts()
+            //output "Bezier case."
+            if currentYPosition < yMaximum
+                FindBezierCurveXIntercepts()
+            end
+            //output "After entering FindBezierCurveXIntercepts()"
         end
     end
 
@@ -401,33 +408,11 @@ class GlyphOutlineEdge
         integer endYInteger = cast(integer, math:Floor(endYPosition))
 
         if isAscending  // line starts from lower y position and moves to higher one
-            if startYPosition - startYInteger < upperThreshold
-                minimum = startYInteger
-            else
-                minimum = startYInteger + 1
-            end
-
-            if endYPosition - endYInteger < lowerThreshold
-                maximum = endYInteger - 1
-            else
-                maximum = endYInteger
-            end
             minimum = math:Floor(startYPosition)
-            maximum = math:Floor(endYPosition)
+            maximum = math:Ceiling(endYPosition)
         else        // line starts from higher y position and moves to lower one
-            if startYPosition - startYInteger < lowerThreshold
-                maximum = startYInteger - 1
-            else
-                maximum = startYInteger
-            end
-
-            if endYPosition - endYInteger < upperThreshold
-                minimum = endYInteger
-            else    
-                minimum = endYInteger + 1
-            end
             minimum = math:Floor(endYPosition)
-            maximum = math:Floor(startYPosition)
+            maximum = math:Ceiling(startYPosition)
         end
 
         yMinimum = cast(integer, minimum)
