@@ -26,6 +26,8 @@ class GlyphOutlineEdge
     number yIntercept = 0.0
     boolean movingLeftToRight = false
     number currentXPosition = 0.0
+    number currentStartXPosition = 0.0
+    number currentEndXPosition = 0.0
     integer currentYPosition = 0
     integer edgeNumber = 0
     boolean isYMonotonic = false
@@ -35,6 +37,14 @@ class GlyphOutlineEdge
     number subEdgeEndY = 0.0
     number subEdgeControlX = 0.0
     number subEdgeControlY = 0.0
+
+    action GetCurrentStartXPosition() returns number
+        return currentStartXPosition
+    end
+
+    action GetCurrentEndXPosition() returns number
+        return currentEndXPosition
+    end
 
     action GetSubEdgeStartX() returns number
         return subEdgeStartX
@@ -243,6 +253,22 @@ class GlyphOutlineEdge
             movingLeftToRight = true
         end
 
+        if movingLeftToRight
+            if startX < startXPosition
+                startX = startXPosition
+            end
+            if endX > endXPosition
+                endX = endXPosition
+            end
+        else
+            if startX < endXPosition
+                startX = endXPosition
+            end
+            if endX > startXPosition
+                endX = startXPosition
+            end
+        end 
+
         integer currentX = cast(integer, math:Floor(startX)) + 1
         newIntercepts:Add(startY)
 
@@ -327,6 +353,9 @@ class GlyphOutlineEdge
         newIntercepts:Add(endY)
         bezierCurveYIntercepts = newIntercepts
         currentXPosition = startX
+        currentStartXPosition = startX
+        currentEndXPosition = endX
+        output "Span of subcurve: " + startX + " to " + endX + " for edge " + edgeNumber
     end
 
     action ResetCurrentYPosition()
@@ -340,6 +369,20 @@ class GlyphOutlineEdge
             if slope not= 0 and not isVertical // not vertical and not horizontal
                 if currentYPosition < yMaximum
                     currentXPosition = (currentYPosition - yIntercept) / slope
+                    output "CurrentXPosition: " + currentXPosition + ", startXPosition: " + startXPosition + ", endXPosition: " + endXPosition + " for edge # " + edgeNumber
+                    if movingLeftToRight
+                        if currentXPosition > endXPosition
+                            currentXPosition = endXPosition
+                        elseif currentXPosition < startXPosition
+                            currentXPosition = startXPosition
+                        end
+                    else
+                        if currentXPosition > startXPosition
+                            currentXPosition = startXPosition
+                        elseif currentXPosition < endXPosition
+                            currentXPosition = endXPosition
+                        end
+                    end
                 end
             end
         else    // bezier curve case
@@ -575,28 +618,6 @@ class GlyphOutlineEdge
                 slope = (endYPosition-startYPosition)/(endXPosition-startXPosition)
             end
             yIntercept = startYPosition - slope * startXPosition
-            /*
-            repeat while i < scanlines:GetSize()
-                XIntercept x
-                number intercept = 0.0
-                integer y = scanlines:Get(i)
-                x:SetYPosition(y)
-                if isVertical   // straight up and down line, it intersects it at the x value
-                    intercept = startXPosition
-                elseif isHorizontal // horizontal line, slope = 0. need to handle these specially
-
-                else // some kind of slanted line, use linear equation to solve for x
-                    intercept = (y-yIntercept)/slope
-                end
-                x:SetXIntercept(intercept)
-
-                scanlineIntercepts:Add(x)
-
-                output "For scanline " + y + " the x intercept is: " + intercept
-
-                i = i + 1
-            end
-            */
         end    
     end
 
