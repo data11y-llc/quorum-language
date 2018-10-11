@@ -101,6 +101,19 @@ class GlyphOutlineEdge
         if not isBezierCurve
             if slope not= 0 and not isVertical // not vertical and not horizontal
                 currentXPosition = (currentYPosition - yIntercept) / slope
+                if movingLeftToRight
+                    if currentXPosition > endXPosition
+                        currentXPosition = endXPosition
+                    elseif currentXPosition < startXPosition
+                        currentXPosition = startXPosition
+                    end
+                else
+                    if currentXPosition > startXPosition
+                        currentXPosition = startXPosition
+                    elseif currentXPosition < endXPosition
+                        currentXPosition = endXPosition
+                    end
+                end
             elseif isVertical
                 currentXPosition = startXPosition
             // horizontal edges aren't processed
@@ -355,7 +368,7 @@ class GlyphOutlineEdge
         currentXPosition = startX
         currentStartXPosition = startX
         currentEndXPosition = endX
-        output "Span of subcurve: " + startX + " to " + endX + " for edge " + edgeNumber
+        //output "Span of subcurve: " + startX + " to " + endX + " for edge " + edgeNumber
     end
 
     action ResetCurrentYPosition()
@@ -369,7 +382,7 @@ class GlyphOutlineEdge
             if slope not= 0 and not isVertical // not vertical and not horizontal
                 if currentYPosition < yMaximum
                     currentXPosition = (currentYPosition - yIntercept) / slope
-                    output "CurrentXPosition: " + currentXPosition + ", startXPosition: " + startXPosition + ", endXPosition: " + endXPosition + " for edge # " + edgeNumber
+                    //output "CurrentXPosition: " + currentXPosition + ", startXPosition: " + startXPosition + ", endXPosition: " + endXPosition + " for edge # " + edgeNumber
                     if movingLeftToRight
                         if currentXPosition > endXPosition
                             currentXPosition = endXPosition
