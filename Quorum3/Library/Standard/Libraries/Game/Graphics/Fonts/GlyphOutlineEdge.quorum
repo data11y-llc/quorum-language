@@ -161,6 +161,7 @@ class GlyphOutlineEdge
         number P3x = endXPosition
         number P3y = endYPosition
 
+        //output "before first repeat"
         repeat while foundSubCurve = false
             // Given a Bezier curve P1, P2, P3, two subarcs, Q1, Q2, Q3 and R1, R2, R3, are defined as follows:
             // Q1 = P1, Q2 = (P1+P2)/2, Q3 = R1 = (Q2+R2)/2, R3 = P3, R2 = (P2+P3)/2
@@ -179,6 +180,11 @@ class GlyphOutlineEdge
             R1x = Q3x
             R1y = Q3y
 
+            if currentYPosition > math:Floor(Q1y) and currentYPosition > math:Floor(R3y)
+                return now
+            end
+            //output "CurrentY: " + currentYPosition + " q1x: " + Q1x + " q1y: " + Q1y + " q2x: " + Q2x + " q2y: " + Q2y + " q3x: " + Q3x + " q3y: " + Q3y
+            //output "CurrentY: " + currentYPosition + " r1x: " + R1x + " r1y: " + R1y + " r2x: " + R2x + " r2y: " + R2y + " r3x: " + R3x + " r3y: " + R3y
             // check if one of the subdivisions has been found
             if math:Floor(Q1y) = currentYPosition and math:Floor(Q3y) = currentYPosition
                 foundSubCurve = true
@@ -232,7 +238,7 @@ class GlyphOutlineEdge
                 end
             end
         end
-
+        //output "After first repeat"
         // have subarc that falls on the scanline, find its intercepts
         // treat it as a straight line, add all x values falling on this y
         Array<number> newIntercepts
@@ -291,10 +297,10 @@ class GlyphOutlineEdge
         P1y = subEdgeStartY
         P2y = subEdgeControlY
         P3y = subEdgeEndY
-
+        //output "before second repeat"
         repeat while currentX < math:Floor(endX)
             foundSubCurve = false
-
+            //output "before inner repeat"
             repeat while not foundSubCurve
                 Q1x = P1x
                 Q1y = P1y
@@ -361,13 +367,16 @@ class GlyphOutlineEdge
             P2y = subEdgeControlY
             P3y = subEdgeEndY
             currentX = currentX + 1
+            //output "After inner repeat"
         end
+        //output "After second repeat"
 
         newIntercepts:Add(endY)
         bezierCurveYIntercepts = newIntercepts
         currentXPosition = startX
         currentStartXPosition = startX
         currentEndXPosition = endX
+        //output "After setting values"
         //output "Span of subcurve: " + startX + " to " + endX + " for edge " + edgeNumber
     end
 
@@ -526,11 +535,11 @@ class GlyphOutlineEdge
         integer endYInteger = cast(integer, math:Floor(endYPosition))
 
         if isAscending  // line starts from lower y position and moves to higher one
-            minimum = math:Floor(startYPosition)
-            maximum = math:Ceiling(endYPosition)
+            minimum = math:Round(startYPosition)
+            maximum = math:Round(endYPosition)
         else        // line starts from higher y position and moves to lower one
-            minimum = math:Floor(endYPosition)
-            maximum = math:Ceiling(startYPosition)
+            minimum = math:Round(endYPosition)
+            maximum = math:Round(startYPosition)
         end
 
         yMinimum = cast(integer, minimum)
@@ -615,11 +624,16 @@ class GlyphOutlineEdge
         controlXPosition = controlPoint:GetX()
         controlYPosition = controlPoint:GetY()
         edgeNumber = newEdgeNumber
+        //output "Before monotonic"
         CalculateIsYMonotonic()
+        //output "Before moving left to right"
         CalculateMovingLeftToRight()
         if isYMonotonic
+            //output "Before scanlines"
             CalculateScanlines()
+            //output "Before current x"
             CalculateCurrentXPosition()
+            //output "Bezier done"
         end
     end
 
