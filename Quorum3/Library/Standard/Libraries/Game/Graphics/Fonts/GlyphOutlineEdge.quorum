@@ -411,6 +411,19 @@ class GlyphOutlineEdge
             //output "Bezier case."
             if currentYPosition < yMaximum
                 FindBezierCurveXIntercepts()
+                if movingLeftToRight
+                        if currentXPosition > endXPosition
+                            currentXPosition = endXPosition
+                        elseif currentXPosition < startXPosition
+                            currentXPosition = startXPosition
+                        end
+                    else
+                        if currentXPosition > startXPosition
+                            currentXPosition = startXPosition
+                        elseif currentXPosition < endXPosition
+                            currentXPosition = endXPosition
+                        end
+                end
             end
             //output "After entering FindBezierCurveXIntercepts()"
         end
