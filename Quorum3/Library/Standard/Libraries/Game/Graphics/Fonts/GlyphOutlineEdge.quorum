@@ -180,13 +180,13 @@ class GlyphOutlineEdge
             R1x = Q3x
             R1y = Q3y
 
-            if currentYPosition > math:Floor(Q1y) and currentYPosition > math:Floor(R3y)
+            if currentYPosition > math:Round(Q1y) and currentYPosition > math:Round(R3y)
                 return now
             end
-            //output "CurrentY: " + currentYPosition + " q1x: " + Q1x + " q1y: " + Q1y + " q2x: " + Q2x + " q2y: " + Q2y + " q3x: " + Q3x + " q3y: " + Q3y
-            //output "CurrentY: " + currentYPosition + " r1x: " + R1x + " r1y: " + R1y + " r2x: " + R2x + " r2y: " + R2y + " r3x: " + R3x + " r3y: " + R3y
+            //output "CurrentY: " + currentYPosition + " q1x: " + Q1x + " q1y: " + Q1y + " q2x: " + Q2x + " q2y: " + Q2y + " q3x: " + Q3x + " q3y: " + Q3y + ", edge #" + edgeNumber
+            //output "CurrentY: " + currentYPosition + " r1x: " + R1x + " r1y: " + R1y + " r2x: " + R2x + " r2y: " + R2y + " r3x: " + R3x + " r3y: " + R3y + ", edge #" + edgeNumber
             // check if one of the subdivisions has been found
-            if math:Floor(Q1y) = currentYPosition and math:Floor(Q3y) = currentYPosition
+            if math:Round(Q1y) = currentYPosition and math:Round(Q3y) = currentYPosition
                 foundSubCurve = true
                 subEdgeStartX = Q1x
                 subEdgeStartY = Q1y
@@ -194,7 +194,7 @@ class GlyphOutlineEdge
                 subEdgeEndY = Q3y
                 subEdgeControlX = Q2x
                 subEdgeControlY = Q2y
-            elseif math:Floor(R1y) = currentYPosition and math:Floor(R3y) = currentYPosition
+            elseif math:Round(R1y) = currentYPosition and math:Round(R3y) = currentYPosition
                 foundSubCurve = true
                 subEdgeStartX = R1x
                 subEdgeStartY = R1y
@@ -204,7 +204,7 @@ class GlyphOutlineEdge
                 subEdgeControlY = R2y
             else    // not found, have to subdivide
                 if isAscending
-                    if currentYPosition >= math:Floor(Q1y) and currentYPosition <= math:Floor(Q3y)  // covered by first subarc
+                    if currentYPosition >= math:Round(Q1y) and currentYPosition <= math:Round(Q3y)  // covered by first subarc
                         P1x = Q1x
                         P1y = Q1y
                         P2x = Q2x
@@ -220,7 +220,7 @@ class GlyphOutlineEdge
                         P3y = R3y
                     end
                 else
-                    if currentYPosition <= math:Floor(Q1y) and currentYPosition >= math:Floor(Q3y)  // covered by first subarc
+                    if currentYPosition <= math:Round(Q1y) and currentYPosition >= math:Round(Q3y)  // covered by first subarc
                         P1x = Q1x
                         P1y = Q1y
                         P2x = Q2x
@@ -317,15 +317,15 @@ class GlyphOutlineEdge
 
                 //output "CurrentX : " + currentX + ", Q1x: " + Q1x + ", Q3x: " + Q3x + ", R1x: " + R1x + ", R3x: " + R3x
 
-                if math:Floor(Q1x) = currentX and math:Floor(Q3x) = currentX
+                if math:Round(Q1x) = currentX and math:Round(Q3x) = currentX
                     foundSubCurve = true
                     newIntercepts:Add((Q1y + Q3y)/2)
-                elseif math:Floor(R1x) = currentX and math:Floor(R3x) = currentX
+                elseif math:Round(R1x) = currentX and math:Round(R3x) = currentX
                     foundSubCurve = true
                     newIntercepts:Add((R1y + R3y)/2)
                 else    // not found, have to subdivide
                     if movingLeftToRight    // Q1x < R3x
-                        if currentX >= math:Floor(Q1x) and currentX <= math:Floor(Q3x)  // covered by first subarc
+                        if currentX >= math:Round(Q1x) and currentX <= math:Round(Q3x)  // covered by first subarc
                             P1x = Q1x
                             P1y = Q1y
                             P2x = Q2x
@@ -341,7 +341,7 @@ class GlyphOutlineEdge
                             P3y = R3y
                         end
                     else
-                        if currentX <= math:Floor(Q1x) and currentX >= math:Floor(Q3x)
+                        if currentX <= math:Round(Q1x) and currentX >= math:Round(Q3x)
                             P1x = Q1x
                             P1y = Q1y
                             P2x = Q2x
@@ -412,17 +412,21 @@ class GlyphOutlineEdge
             if currentYPosition < yMaximum
                 FindBezierCurveXIntercepts()
                 if movingLeftToRight
-                        if currentXPosition > endXPosition
-                            currentXPosition = endXPosition
-                        elseif currentXPosition < startXPosition
-                            currentXPosition = startXPosition
-                        end
-                    else
-                        if currentXPosition > startXPosition
-                            currentXPosition = startXPosition
-                        elseif currentXPosition < endXPosition
-                            currentXPosition = endXPosition
-                        end
+                    if currentXPosition > endXPosition
+                        //output "Bezier x correction L->R > endX. currentX: " + currentXPosition + ", now set to: " + endXPosition
+                        currentXPosition = endXPosition
+                    elseif currentXPosition < startXPosition
+                        //output "Bezier x correction L->R < startX. currentX: " + currentXPosition + ", now set to: " + startXPosition
+                        currentXPosition = startXPosition
+                    end
+                else
+                    if currentXPosition > startXPosition
+                        //output "Bezier x correction R->L > startX. currentX: " + currentXPosition + ", now set to: " + startXPosition
+                        currentXPosition = startXPosition
+                    elseif currentXPosition < endXPosition
+                        //output "Bezier x correction R->L > endX. currentX: " + currentXPosition + ", now set to: " + endXPosition
+                        currentXPosition = endXPosition
+                    end
                 end
             end
             //output "After entering FindBezierCurveXIntercepts()"
