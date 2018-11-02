@@ -8,6 +8,7 @@ use Libraries.Language.Support.CompareResult
 class GlyphOutlineEdge
     Math math
     Array<integer> scanlines
+    Array<GlyphOutlineEdge> splitEdges
     Array<XIntercept> scanlineIntercepts
     Array<number> bezierCurveYIntercepts
     number startXPosition = 0
@@ -37,6 +38,14 @@ class GlyphOutlineEdge
     number subEdgeEndY = 0.0
     number subEdgeControlX = 0.0
     number subEdgeControlY = 0.0
+
+    action SetSplitEdgeArray(Array<GlyphOutlineEdge> edges)
+        splitEdges = edges:CopyToArray()
+    end
+
+    action GetSplitEdgeArray() returns Array<GlyphOutlineEdge>
+        return splitEdges
+    end
 
     action GetCurrentStartXPosition() returns number
         return currentStartXPosition
@@ -187,6 +196,9 @@ class GlyphOutlineEdge
             //output "CurrentY: " + currentYPosition + " r1x: " + R1x + " r1y: " + R1y + " r2x: " + R2x + " r2y: " + R2y + " r3x: " + R3x + " r3y: " + R3y + ", edge #" + edgeNumber
             // check if one of the subdivisions has been found
             if math:Round(Q1y) = currentYPosition and math:Round(Q3y) = currentYPosition
+                // it's possible for the other subdivision to also fall on the scanline, although perhaps not immediately
+                // check for this case. If the other subdivision can call on this scanline, need to process it, too.
+                // if not, set foundSubCurve to true and end
                 foundSubCurve = true
                 subEdgeStartX = Q1x
                 subEdgeStartY = Q1y
