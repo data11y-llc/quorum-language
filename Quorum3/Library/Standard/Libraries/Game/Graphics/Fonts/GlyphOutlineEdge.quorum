@@ -11,6 +11,7 @@ class GlyphOutlineEdge
     Array<GlyphOutlineEdge> splitEdges
     Array<XIntercept> scanlineIntercepts
     Array<number> bezierCurveYIntercepts
+    Array<number> xIntercepts
     number startXPosition = 0
     number startYPosition = 0
     number endXPosition = 0
@@ -30,6 +31,7 @@ class GlyphOutlineEdge
     number currentStartXPosition = 0.0
     number currentEndXPosition = 0.0
     integer currentYPosition = 0
+    integer yIndex = 0
     integer edgeNumber = 0
     boolean isYMonotonic = false
     number subEdgeStartX = 0.0
@@ -38,6 +40,10 @@ class GlyphOutlineEdge
     number subEdgeEndY = 0.0
     number subEdgeControlX = 0.0
     number subEdgeControlY = 0.0
+
+    action SetCurrentXPosition(number position)
+        currentXPosition = position
+    end
 
     action SetSplitEdgeArray(Array<GlyphOutlineEdge> edges)
         splitEdges = edges:CopyToArray()
@@ -137,259 +143,9 @@ class GlyphOutlineEdge
             // Not sure how you would find the x-intercept of an even smaller
             // Bezier curve without usiing the weighted formula?
             
-            FindBezierCurveXIntercepts()
+            //FindBezierCurveXIntercepts()
 
         end
-    end
-    
-    action FindBezierCurveXIntercepts()
-        // General algorithm idea:
-        // Subdivide the Bezier curve into two smaller Bezier curves.
-        // Discard the one that does not fit the current y scanline.
-        // Continue the process until you have a Bezier curve where both endpoints have y values that are equal to the scanline.
-
-        Math math
-        boolean foundSubCurve = false
-        number xIntercept = 0.0
-        number Q1x = 0.0
-        number Q1y = 0.0
-        number Q2x = 0.0
-        number Q2y = 0.0
-        number Q3x = 0.0
-        number Q3y = 0.0
-        number R1x = 0.0
-        number R1y = 0.0
-        number R2x = 0.0
-        number R2y = 0.0
-        number R3x = 0.0
-        number R3y = 0.0
-        number P1x = startXPosition
-        number P1y = startYPosition
-        number P2x = controlXPosition
-        number P2y = controlYPosition
-        number P3x = endXPosition
-        number P3y = endYPosition
-
-        //output "before first repeat"
-        repeat while foundSubCurve = false
-            // Given a Bezier curve P1, P2, P3, two subarcs, Q1, Q2, Q3 and R1, R2, R3, are defined as follows:
-            // Q1 = P1, Q2 = (P1+P2)/2, Q3 = R1 = (Q2+R2)/2, R3 = P3, R2 = (P2+P3)/2
-            
-            // create new Bezier curves
-            Q1x = P1x
-            Q1y = P1y
-            Q2x = (P1x + P2x)/2
-            Q2y = (P1y + P2y)/2
-            R3x = P3x
-            R3y = P3y
-            R2x = (P2x + P3x)/2
-            R2y = (P2y + P3y)/2
-            Q3x = (Q2x + R2x)/2
-            Q3y = (Q2y + R2y)/2
-            R1x = Q3x
-            R1y = Q3y
-
-            if currentYPosition > math:Round(Q1y) and currentYPosition > math:Round(R3y)
-                return now
-            end
-            //output "CurrentY: " + currentYPosition + " q1x: " + Q1x + " q1y: " + Q1y + " q2x: " + Q2x + " q2y: " + Q2y + " q3x: " + Q3x + " q3y: " + Q3y + ", edge #" + edgeNumber
-            //output "CurrentY: " + currentYPosition + " r1x: " + R1x + " r1y: " + R1y + " r2x: " + R2x + " r2y: " + R2y + " r3x: " + R3x + " r3y: " + R3y + ", edge #" + edgeNumber
-            // check if one of the subdivisions has been found
-            if math:Round(Q1y) = currentYPosition and math:Round(Q3y) = currentYPosition
-                // it's possible for the other subdivision to also fall on the scanline, although perhaps not immediately
-                // check for this case. If the other subdivision can call on this scanline, need to process it, too.
-                // if not, set foundSubCurve to true and end
-                foundSubCurve = true
-                subEdgeStartX = Q1x
-                subEdgeStartY = Q1y
-                subEdgeEndX = Q3x
-                subEdgeEndY = Q3y
-                subEdgeControlX = Q2x
-                subEdgeControlY = Q2y
-            elseif math:Round(R1y) = currentYPosition and math:Round(R3y) = currentYPosition
-                foundSubCurve = true
-                subEdgeStartX = R1x
-                subEdgeStartY = R1y
-                subEdgeEndX = R3x
-                subEdgeEndY = R3y
-                subEdgeControlX = R2x
-                subEdgeControlY = R2y
-            else    // not found, have to subdivide
-                if isAscending
-                    if currentYPosition >= math:Round(Q1y) and currentYPosition <= math:Round(Q3y)  // covered by first subarc
-                        P1x = Q1x
-                        P1y = Q1y
-                        P2x = Q2x
-                        P2y = Q2y
-                        P3x = Q3x
-                        P3y = Q3y
-                    else        // covered by second subarc
-                        P1x = R1x
-                        P1y = R1y
-                        P2x = R2x
-                        P2y = R2y
-                        P3x = R3x
-                        P3y = R3y
-                    end
-                else
-                    if currentYPosition <= math:Round(Q1y) and currentYPosition >= math:Round(Q3y)  // covered by first subarc
-                        P1x = Q1x
-                        P1y = Q1y
-                        P2x = Q2x
-                        P2y = Q2y
-                        P3x = Q3x
-                        P3y = Q3y  
-                    else        // covered by second subarc
-                        P1x = R1x
-                        P1y = R1y
-                        P2x = R2x
-                        P2y = R2y
-                        P3x = R3x
-                        P3y = R3y
-                    end
-                end
-            end
-        end
-        //output "After first repeat"
-        // have subarc that falls on the scanline, find its intercepts
-        // treat it as a straight line, add all x values falling on this y
-        Array<number> newIntercepts
-
-        // new idea: subdivide the small arc until it is on a single pixel, add that y value to the intercepts
-        
-        number startX = 0
-        number endX = 0
-        number startY = 0
-        number endY = 0
-        foundSubCurve = false
-        boolean movingLeftToRight = false
-        
-        if subEdgeStartX < subEdgeEndX
-            startX = subEdgeStartX
-            endX = subEdgeEndX
-            startY = subEdgeStartY
-            endY = subEdgeEndY
-            movingLeftToRight = true
-        elseif subEdgeStartX > subEdgeEndX
-            startX = subEdgeEndX
-            endX = subEdgeStartX
-            startY = subEdgeEndY
-            endY = subEdgeStartY
-            movingLeftToRight = false
-        else
-            startX = subEdgeStartX
-            endX = subEdgeEndX
-            startY = subEdgeStartY
-            endY = subEdgeEndY
-            movingLeftToRight = true
-        end
-
-        if movingLeftToRight
-            if startX < startXPosition
-                startX = startXPosition
-            end
-            if endX > endXPosition
-                endX = endXPosition
-            end
-        else
-            if startX < endXPosition
-                startX = endXPosition
-            end
-            if endX > startXPosition
-                endX = startXPosition
-            end
-        end 
-
-        integer currentX = cast(integer, math:Floor(startX)) + 1
-        newIntercepts:Add(startY)
-
-        P1x = subEdgeStartX
-        P2x = subEdgeControlX
-        P3x = subEdgeEndX
-        P1y = subEdgeStartY
-        P2y = subEdgeControlY
-        P3y = subEdgeEndY
-        //output "before second repeat"
-        repeat while currentX < math:Floor(endX)
-            foundSubCurve = false
-            //output "before inner repeat"
-            repeat while not foundSubCurve
-                Q1x = P1x
-                Q1y = P1y
-                Q2x = (P1x + P2x)/2
-                Q2y = (P1y + P2y)/2
-                R3x = P3x
-                R3y = P3y
-                R2x = (P2x + P3x)/2
-                R2y = (P2y + P3y)/2
-                Q3x = (Q2x + R2x)/2
-                Q3y = (Q2y + R2y)/2
-                R1x = Q3x
-                R1y = Q3y
-
-                //output "CurrentX : " + currentX + ", Q1x: " + Q1x + ", Q3x: " + Q3x + ", R1x: " + R1x + ", R3x: " + R3x
-
-                if math:Round(Q1x) = currentX and math:Round(Q3x) = currentX
-                    foundSubCurve = true
-                    newIntercepts:Add((Q1y + Q3y)/2)
-                elseif math:Round(R1x) = currentX and math:Round(R3x) = currentX
-                    foundSubCurve = true
-                    newIntercepts:Add((R1y + R3y)/2)
-                else    // not found, have to subdivide
-                    if movingLeftToRight    // Q1x < R3x
-                        if currentX >= math:Round(Q1x) and currentX <= math:Round(Q3x)  // covered by first subarc
-                            P1x = Q1x
-                            P1y = Q1y
-                            P2x = Q2x
-                            P2y = Q2y
-                            P3x = Q3x
-                            P3y = Q3y
-                        else        // covered by second subarc
-                            P1x = R1x
-                            P1y = R1y
-                            P2x = R2x
-                            P2y = R2y
-                            P3x = R3x
-                            P3y = R3y
-                        end
-                    else
-                        if currentX <= math:Round(Q1x) and currentX >= math:Round(Q3x)
-                            P1x = Q1x
-                            P1y = Q1y
-                            P2x = Q2x
-                            P2y = Q2y
-                            P3x = Q3x
-                            P3y = Q3y  
-                        else
-                            P1x = R1x
-                            P1y = R1y
-                            P2x = R2x
-                            P2y = R2y
-                            P3x = R3x
-                            P3y = R3y
-                        end
-                    end
-                end
-            end
-
-            P1x = subEdgeStartX
-            P2x = subEdgeControlX
-            P3x = subEdgeEndX
-            P1y = subEdgeStartY
-            P2y = subEdgeControlY
-            P3y = subEdgeEndY
-            currentX = currentX + 1
-            //output "After inner repeat"
-        end
-        //output "After second repeat"
-
-        newIntercepts:Add(endY)
-        bezierCurveYIntercepts = newIntercepts
-        currentXPosition = startX
-        currentStartXPosition = startX
-        currentEndXPosition = endX
-        //output "After setting values"
-        //output "Span of subcurve: " + startX + " to " + endX + " for edge " + edgeNumber
     end
 
     action ResetCurrentYPosition()
@@ -398,6 +154,7 @@ class GlyphOutlineEdge
 
     action UpdateCurrentXPosition()
         currentYPosition = currentYPosition + 1
+        yIndex = yIndex + 1
         //output "Update current x. current y is: " + currentYPosition + " and max y is: " + yMaximum
         if not isBezierCurve
             if slope not= 0 and not isVertical // not vertical and not horizontal
@@ -422,24 +179,7 @@ class GlyphOutlineEdge
         else    // bezier curve case
             //output "Bezier case."
             if currentYPosition < yMaximum
-                FindBezierCurveXIntercepts()
-                if movingLeftToRight
-                    if currentXPosition > endXPosition
-                        //output "Bezier x correction L->R > endX. currentX: " + currentXPosition + ", now set to: " + endXPosition
-                        currentXPosition = endXPosition
-                    elseif currentXPosition < startXPosition
-                        //output "Bezier x correction L->R < startX. currentX: " + currentXPosition + ", now set to: " + startXPosition
-                        currentXPosition = startXPosition
-                    end
-                else
-                    if currentXPosition > startXPosition
-                        //output "Bezier x correction R->L > startX. currentX: " + currentXPosition + ", now set to: " + startXPosition
-                        currentXPosition = startXPosition
-                    elseif currentXPosition < endXPosition
-                        //output "Bezier x correction R->L > endX. currentX: " + currentXPosition + ", now set to: " + endXPosition
-                        currentXPosition = endXPosition
-                    end
-                end
+                currentXPosition = xIntercepts:Get(yIndex)
             end
             //output "After entering FindBezierCurveXIntercepts()"
         end
@@ -652,6 +392,7 @@ class GlyphOutlineEdge
         endYPosition = endPoint:GetY()
         controlXPosition = controlPoint:GetX()
         controlYPosition = controlPoint:GetY()
+        //output "New Bezier. start, control, end y: " + startYPosition + ", " + controlYPosition + ", " + endYPosition
         edgeNumber = newEdgeNumber
         //output "Before monotonic"
         CalculateIsYMonotonic()
@@ -660,9 +401,158 @@ class GlyphOutlineEdge
         if isYMonotonic
             //output "Before scanlines"
             CalculateScanlines()
+            SplitIntoSubArcs(me)
             //output "Before current x"
-            CalculateCurrentXPosition()
+            //CalculateCurrentXPosition()
             //output "Bezier done"
+        else
+            //output "Not y monotonic. Something is wrong"
+        end
+    end
+
+    action FindXIntercepts()
+        // This should find and store every x intercept for this scanline, in ascending order
+        // Stored in the xIntercepts array of numbers
+        //output "Finding x intercepts for edge #" + edgeNumber + " which runs from (" + startXPosition + ", " + startYPosition + ") to (" + endXPosition + ", " + endYPosition + ")."
+        // initialize xIntercepts array so this can be done in a single iteration
+        integer i = yMinimum
+        repeat while i <= yMaximum
+            if isAscending  // we want the right-most x-coordinates for each edge so initialize to a small number
+                xIntercepts:Add(-9999)
+            else            // we want the left-most x-coordinates for each edge so initialize to a large number
+                xIntercepts:Add(9999)
+            end
+
+            i = i + 1
+        end
+
+        i = yMinimum
+        integer index = 0
+        repeat while i <= yMaximum
+            integer j = 0
+            repeat while j < splitEdges:GetSize()
+                GlyphOutlineEdge edge = splitEdges:Get(j)
+                number startX = edge:GetStartXPosition()
+                number startY = math:Round(edge:GetStartYPosition())
+                number endX = edge:GetEndXPosition()
+                number endY = math:Round(edge:GetEndYPosition())
+                //output "split startX: " + startX + " endX: " + endX + " startY: " + startY + " endY: " + endY + " scanline: " + i
+                if i >= startY and i <= endY or i <= startY and i >= endY   // split falls on the current scanline
+                    if isAscending
+                        if movingLeftToRight  // use the end x value
+                            if endX > xIntercepts:Get(index)
+                                xIntercepts:Set(index, endX)
+                            end
+                        else    // use the start x value
+                            if startX > xIntercepts:Get(index)
+                                xIntercepts:Set(index, startX)
+                            end
+                        end
+                    else
+                        if movingLeftToRight  // use the start x value
+                            if startX < xIntercepts:Get(index)
+                                xIntercepts:Set(index, startX)
+                            end
+                        else    // use the end x value
+                            if endX < xIntercepts:Get(index)
+                                xIntercepts:Set(index, endX)
+                            end
+                        end
+                    end
+                end
+                
+                j = j + 1
+            end
+            index = index + 1
+            i = i + 1
+        end
+        
+        /*
+        i = 0
+        integer scanline = yMinimum
+        repeat while i < xIntercepts:GetSize()
+            output "X intercept for scanline " + scanline + " is: " + xIntercepts:Get(i)
+            scanline = scanline + 1
+            i = i + 1
+        end
+        */
+        currentXPosition = xIntercepts:Get(0)
+
+    end
+
+    private action SplitIntoSubArcs(GlyphOutlineEdge edge)
+        //output "Edge splitting. Stats for " + edge:GetEdgeNumber() + " are:"
+        //edge:ToText()
+        number Q1x = 0.0
+        number Q1y = 0.0
+        number Q2x = 0.0
+        number Q2y = 0.0
+        number Q3x = 0.0
+        number Q3y = 0.0
+        number R1x = 0.0
+        number R1y = 0.0
+        number R2x = 0.0
+        number R2y = 0.0
+        number R3x = 0.0
+        number R3y = 0.0
+        number P1x = edge:GetStartXPosition()
+        number P1y = edge:GetStartYPosition()
+        number P2x = edge:GetControlXPosition()
+        number P2y = edge:GetControlYPosition()
+        number P3x = edge:GetEndXPosition()
+        number P3y = edge:GetEndYPosition()
+
+        if math:AbsoluteValue(P1y - P3y) < 1
+            CoordinateVector startPoints
+            CoordinateVector endPoints
+            GlyphOutlineEdge newEdge
+            startPoints:SetX(edge:GetStartXPosition())
+            startPoints:SetY(edge:GetStartYPosition())
+            endPoints:SetX(edge:GetEndXPosition())
+            endPoints:SetY(edge:GetEndYPosition())
+            newEdge:CreateEdge(startPoints, endPoints, edge:GetEdgeNumber())
+            splitEdges:Add(newEdge)
+        else
+            // Edge not small enough, continue subdivision
+            Q1x = P1x
+            Q1y = P1y
+            Q2x = (P1x + P2x)/2
+            Q2y = (P1y + P2y)/2
+            R3x = P3x
+            R3y = P3y
+            R2x = (P2x + P3x)/2
+            R2y = (P2y + P3y)/2
+            Q3x = (Q2x + R2x)/2
+            Q3y = (Q2y + R2y)/2
+            R1x = Q3x
+            R1y = Q3y
+
+            GlyphOutlineEdge edge1
+            GlyphOutlineEdge edge2
+            CoordinateVector start
+            CoordinateVector control
+            CoordinateVector ending
+
+            start:SetX(Q1x)
+            start:SetY(Q1y)
+            control:SetX(Q2x)
+            control:SetY(Q2y)
+            ending:SetX(Q3x)
+            ending:SetY(Q3y)
+
+            edge1:CreateBezierEdge(start, ending, control, -edge:GetEdgeNumber())
+
+            start:SetX(R1x)
+            start:SetY(R1y)
+            control:SetX(R2x)
+            control:SetY(R2y)
+            ending:SetX(R3x)
+            ending:SetY(R3y)
+
+            edge2:CreateBezierEdge(start, ending, control, -edge:GetEdgeNumber())
+
+            SplitIntoSubArcs(edge1)
+            SplitIntoSubArcs(edge2)
         end
     end
 
@@ -699,9 +589,9 @@ class GlyphOutlineEdge
     
     action ToText()
         output "This edge begins at: (" + startXPosition + ", " + startYPosition + ") and ends at: (" + endXPosition + ", " + endYPosition + ")."
-        output "It is ascending: " + isAscending
-        output "It is vertical: " + isVertical
-        output "It is horizontal: " + isHorizontal
+        //output "It is ascending: " + isAscending
+        //output "It is vertical: " + isVertical
+        //output "It is horizontal: " + isHorizontal
         output "It spans from " + yMinimum + " to " + yMaximum + "."
     end
 end
