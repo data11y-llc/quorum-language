@@ -1,0 +1,5 @@
+use Libraries.Containers.ByteArray
+
+    ByteArray value
+    value:SetBigEndian(false)
+    output value:IsBigEndian()

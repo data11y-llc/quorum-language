@@ -53,7 +53,7 @@ class TextBoxSelection is Selection
     action Set(integer startIndex, integer endIndex, boolean caretAtEnd, boolean textChanged)
         TextBox textBox = GetTextBox()
         if textBox not= undefined
-            MultipleLineText multi = textBox:GetLines()
+            MultipleLineText multi = textBox:GetMultipleLineText()
             integer startLine = multi:LineIndexFromCharacterIndex(startIndex)
             integer startLinePosition = startIndex - multi:CharacterIndexFromLineIndex(startLine)
 
@@ -98,6 +98,17 @@ class TextBoxSelection is Selection
     */
     action GetEndIndex returns integer
         return indices:GetSecondValue()
+    end
+
+    /*
+        This action uses the start and end indices to obtain the text selection.
+    */
+    action GetText returns text
+        TextBox textBox = GetTextBox()
+        if textBox not= undefined
+            return textBox:GetText(GetStartIndex(), GetEndIndex())
+        end
+        return ""
     end
 
     /* 

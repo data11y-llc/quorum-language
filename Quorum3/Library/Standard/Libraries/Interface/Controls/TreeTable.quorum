@@ -1,0 +1,599 @@
+package Libraries.Interface.Controls
+
+use Libraries.Containers.Array
+use Libraries.Containers.Support.Pair
+use Libraries.Interface.Layouts.FlowLayout
+use Libraries.Interface.Layouts.LayoutProperties
+use Libraries.Interface.Selections.TreeTableSelection
+use Libraries.Interface.Behaviors.Behavior
+
+class TreeTable is Control
+    Array<TreeTableColumn> columns
+    Array<TreeTableRow> rows
+    TreeTableSelection selection
+
+    // The cellBehavior is called when a Cell would be activated if it doesn't
+    // have an activation behavior of its own defined.
+    Behavior cellBehavior = undefined
+    
+    on create
+        FlowLayout layout
+        SetLayout(layout)
+
+        LayoutProperties properties = GetDefaultLayoutProperties()
+        properties:SetHorizontalLayoutMode(properties:FIT_CONTENTS)
+        properties:SetVerticalLayoutMode(properties:FIT_CONTENTS)
+
+        SetInputGroup("TreeTable")
+
+        SetFocusable(true)
+        selection:Initialize(me)
+        SetAccessibilityCode(parent:Item:TABLE)
+        SetName("Tree Table")
+    end
+
+    action Add(Item2D item)
+        if item is TreeTableColumn
+            TreeTableColumn column = cast(TreeTableColumn, item)
+            columns:Add(column)
+            column:SetTreeTable(me)
+
+            PopulateColumn(column, rows)
+        end
+
+        parent:Item2D:Add(item)
+    end
+
+    action Add(integer position, Item2D item)
+        if item is TreeTableColumn
+            TreeTableColumn column = cast(TreeTableColumn, item)
+            columns:Add(position, column)
+            column:SetTreeTable(me)
+
+            PopulateColumn(column, rows)
+        end
+
+        parent:Item2D:Add(position, item)
+    end
+
+    action Remove(Item2D item) returns boolean
+        if item is TreeTableColumn
+            TreeTableColumn column = cast(TreeTableColumn, item)
+            columns:Remove(column)
+            column:SetTreeTable(undefined)
+        end
+
+        return parent:Item2D:Remove(item)
+    end
+
+    action RemoveColumnAt(integer column)
+        TreeTableColumn c = columns:RemoveAt(column)
+        parent:Item2D:Remove(c)
+    end
+
+    /*
+    A recursive function used to populate a column with all of the cells needed
+    to show currently expanded TreeTableRows. Used to ensure that if a new
+    column is added to a TreeTable that already has rows added, the new column
+    is properly up-to-date with the state of the TreeTable.
+
+    Attribute: Parameter column The column that needs to be populated.
+    Attribute: Parameter rows The TreeTableRows to be placed in the column. When first called, this should be the TreeTable's "rows" variable.
+    */
+    private action PopulateColumn(TreeTableColumn column, Array<TreeTableRow> rows)
+
+        // The "target" is the index where new cells should be placed at the end of the column.
+        // We track this so we can set the cell at the index afterwords.
+        integer target = column:GetSize()
+        integer counter = 0
+        repeat while counter < rows:GetSize()
+            TreeTableRow row = rows:Get(counter)
+            TreeTableCell cell = column:CreateCell()
+            cell:SetRow(row)
+
+            column:Add(target, cell)
+            column:SetCell(target, row)
+
+            counter = counter + 1
+            target = target + 1
+
+            if row:IsExpanded()
+                PopulateColumn(column, row:GetChildren())
+                target = column:GetSize()
+            end
+        end
+    end
+
+    action Add(TreeTableRow row)
+        rows:Add(row)
+
+        integer counter = 0
+        repeat while counter < columns:GetSize()
+            TreeTableColumn column = columns:Get(counter)
+            integer target = column:GetSize()
+
+            TreeTableCell cell = column:CreateCell()
+            cell:SetRow(row)
+
+            column:Add(cell)
+            column:SetCell(target, row)
+
+            counter = counter + 1
+        end
+    end
+
+    action Add(integer position, TreeTableRow row)
+        rows:Add(position, row)
+
+        integer counter = 0
+        repeat while counter < columns:GetSize()
+            TreeTableColumn column = columns:Get(counter)
+            integer target = GetFlattenedIndex(position)
+
+            TreeTableCell cell = column:CreateCell()
+            cell:SetRow(row)
+
+            column:Add(target, cell)
+            column:SetCell(target, row)
+
+            counter = counter + 1
+        end
+    end
+
+    action EmptyRows 
+        i = 0
+        repeat while i < columns:GetSize()
+            TreeTableColumn column = columns:Get(i)
+            column:Empty()
+            i = i + 1
+        end
+    end
+
+    action Remove(TreeTableRow row) returns boolean
+        integer topIndex = rows:GetFirstLocation(row)
+        if topIndex < 0
+            return false
+        end
+
+        integer index = GetFlattenedIndex(row)
+        CloseRow(row)
+
+        // If we're about to remove the selected cell, deselect it first.
+        TreeTableCell selectedCell = selection:Get()
+        if selectedCell not= undefined and selectedCell:GetRow() = row
+            Deselect()
+        end
+        
+        integer counter = 0
+        repeat while counter < columns:GetSize()
+            TreeTableColumn column = columns:Get(counter)
+            column:RemoveCellAt(index)
+            counter = counter + 1
+        end
+
+        rows:RemoveAt(topIndex)
+
+        return true
+    end
+
+    /*
+    This action converts a top-level index (considering only the top level
+    TreeTableRows) to a flattened index (considering all visible TreeTableRows
+    in the TreeTable, as is relevant to cell positioning in the columns).
+    */
+    private action GetFlattenedIndex(integer target) returns integer
+        integer total = 0
+        integer counter = 0
+        repeat while counter < target
+            TreeTableRow row = rows:Get(counter)
+            total = total + GetActiveRowCount(row)
+
+            counter = counter + 1
+        end
+
+        return total
+    end
+
+    private action GetActiveRowCount(TreeTableRow row) returns integer
+        integer total = 1
+        
+        if row:IsExpanded()
+            Array<TreeTableRow> children = row:GetChildren()
+            integer counter = 0
+
+            repeat while counter < children:GetSize()
+                TreeTableRow child = children:Get(counter)
+                total = total + GetActiveRowCount(child)
+                counter = counter + 1
+            end
+        end
+
+        return total
+    end
+
+    /*
+    This action finds the flattened index (considering all visible TreeTableRows
+    in the TreeTable, as is relevant to cell positioning in the columns) of the
+    given TreeTableRow.
+    */
+    private action GetFlattenedIndex(TreeTableRow row) returns integer
+        Boolean found
+        integer index = GetFlattenedIndex(rows, row, found)
+
+        if found:GetValue() = true
+            return index
+        else
+            return -1
+        end
+    end
+
+    private action GetFlattenedIndex(Array<TreeTableRow> rows, TreeTableRow targetRow, Boolean found) returns integer
+        integer counter = 0
+        integer index = 0
+        repeat while counter < rows:GetSize()
+            TreeTableRow row = rows:Get(counter)
+            if row = targetRow
+                found:SetValue(true)
+                return index
+            elseif row:IsExpanded()
+                index = 1 + index + GetFlattenedIndex(row:GetChildren(), targetRow, found)
+                if found:GetValue() = true
+                    return index
+                end
+            else
+                index = index + 1
+            end
+            counter = counter + 1
+        end
+
+        return index
+    end
+
+    action GetColumn(integer i) returns TreeTableColumn
+        return columns:Get(i)
+    end
+
+    action GetColumnsSize returns integer
+        return columns:GetSize()
+    end
+
+    action GetSelection returns TreeTableSelection
+        return selection
+    end
+
+    action IsColumnsEmpty returns boolean
+        return columns:IsEmpty()
+    end
+
+    action Empty 
+        columns:Empty()
+        parent:Item2D:Empty()
+    end
+
+    /*
+        This action selects a single cell in the spreadsheet. In this case,
+        a single cell.
+    */
+    action Select(TreeTableCell cell)
+        TreeTableCell oldSelection = selection:Get()
+        if oldSelection not= undefined
+            oldSelection:LostSelection()
+        end
+
+        if cell not= undefined
+            cell:GainedSelection()
+        end
+
+        selection:Set(cell)
+    end
+
+    /*
+    This action selects a single Cell at the provided x and y coordinates,
+    where the x coordinate represents the column and the y coordinate represents
+    the row.
+    */
+    action Select(integer x, integer y)
+        TreeTableCell oldSelection = selection:Get()
+        if oldSelection not= undefined
+            oldSelection:LostSelection()
+        end
+
+        TreeTableCell cell = GetCell(x, y)
+        if cell not= undefined
+            cell:GainedSelection()
+        end
+
+        selection:Set(x, y)
+    end
+
+    action Deselect
+        TreeTableCell oldSelection = selection:Get()
+        if oldSelection not= undefined
+            oldSelection:LostSelection()
+        end
+
+        selection:Empty()
+    end
+
+    action MoveSelectionUp
+        if selection:IsEmpty()
+            return now
+        end
+
+        integer x = selection:GetX()
+        integer y = selection:GetY()
+        
+        if y > 0
+            Select(x, y - 1)
+        end
+    end
+
+    action MoveSelectionDown
+        if selection:IsEmpty()
+            return now
+        end
+
+        integer x = selection:GetX()
+        integer y = selection:GetY()
+        
+        if x >= 0 and x < columns:GetSize()
+            TreeTableColumn column = columns:Get(x)
+            if y < column:GetSize() - 1
+                Select(x, y + 1)
+            end
+        end
+    end
+
+    action MoveSelectionLeft
+        if selection:IsEmpty()
+            return now
+        end
+
+        integer x = selection:GetX()
+        integer y = selection:GetY()
+
+        if selection:GetX() > 0
+            Select(x - 1, y)
+        end
+    end
+
+    action MoveSelectionRight
+        if selection:IsEmpty()
+            return now
+        end
+
+        integer x = selection:GetX()
+        integer y = selection:GetY()
+        
+        if selection:GetX() < columns:GetSize() - 1
+            Select(x + 1, y)
+        end
+    end
+
+    /*
+    This action returns the coordinates of a cell within the Spreadsheet within
+    a Pair object. The first value of the Pair is the x coordinate, representing
+    which column contains the cell. The second value of the Pair is the y
+    coordinate, representing which row contains the cell.
+
+    This action can potentially iterate over every cell in the Spreadsheet, and
+    should be used sparingly if working with lots of cells.
+    */
+    action GetCellCoordinates(TreeTableCell cell) returns Pair<integer>
+        integer x = 0
+        Pair<integer> pair
+
+        repeat while x < columns:GetSize()
+            TreeTableColumn column = columns:Get(x)
+            integer y = column:GetCellIndex(cell)
+            if y > -1
+                pair:Set(x, y)
+                return pair
+            end
+            x = x + 1
+        end
+
+        // If the cell couldn't be found, return -1 for each coordinate.
+        pair:Set(-1, -1)
+        return pair
+    end
+
+    /*
+    This action returns the index of the column within the Spreadsheet, or
+    returns -1 if the column is not a part of this Spreadsheet.
+    */
+    action GetColumnIndex(TreeTableColumn column) returns integer
+        return columns:GetFirstLocation(column)
+    end
+
+    /*
+    This action gets the cell located at the given coordinates, where the x
+    coordinate represents the column and the y coordinate represents the row.
+    */
+    action GetCell(integer x, integer y) returns TreeTableCell
+        return columns:Get(x):GetCell(y)
+    end
+
+    /*
+    This action sets the cell activation Behavior for this Spreadsheet. If a
+    cell would ever be activated (such as by a double-click), if it doesn't have
+    its own activation Behavior, the Spreadsheet's cell activation Behavior will
+    be used instead.
+    */
+    action SetCellActivationBehavior(Behavior behavior)
+        cellBehavior = behavior
+    end
+
+    /*
+    This action returns the cell activation Behavior for this Spreadsheet. If a
+    cell would ever be activated (such as by a double-click), if it doesn't have
+    its own activation Behavior, the Spreadsheet's cell activation Behavior will
+    be used instead.
+    */
+    action GetCellActivationBehavior returns Behavior
+        return cellBehavior
+    end
+
+    action ExpandRow(TreeTableRow parentRow)
+        integer index = GetFlattenedIndex(parentRow)
+
+        if index < 0
+            return now
+        end
+
+        integer i = 0
+        integer columnSize = columns:GetSize()
+
+        parentRow:SetExpandFlag(true)
+        Array<TreeTableRow> rows = parentRow:GetChildren()
+        repeat while i < rows:GetSize()
+            TreeTableRow row = rows:Get(i)
+            index = index + 1
+
+            integer j = 0
+            repeat while j < columnSize
+                TreeTableColumn column = columns:Get(j)
+                column:AddCell(index, row)
+                j = j + 1
+            end
+
+            i = i + 1
+        end
+    end
+
+    action CloseRow(TreeTableRow row)
+        if row:IsExpanded() = false
+            return now
+        end
+
+        Array<TreeTableRow> childRows = row:GetChildren()
+
+        // We'll remove cells from the index after the parent cell.
+        integer index = GetFlattenedIndex(row)
+
+        if index < 0
+            return now
+        end
+
+        // We'll remove cells from the index after the parent cell.
+        index = index + 1
+        
+        integer i = 0
+        integer columnSize = columns:GetSize()
+
+        repeat while i < childRows:GetSize()
+            TreeTableRow childRow = childRows:Get(i)
+            CloseRow(childRow)
+
+            integer j = 0
+            repeat while j < columnSize
+                TreeTableColumn column = columns:Get(j)
+
+                // If we're about to delete the selected cell, deselect it first.
+                if selection:Get() = column:GetCell(index)
+                    Deselect()
+                end
+
+                column:RemoveCellAt(index)
+                j = j + 1
+            end
+
+            i = i + 1
+        end
+
+        row:SetExpandFlag(false)
+    end
+
+    /*
+    This action is used to determine if the given column is the first column in
+    the TreeTable, which may contain buttons to expand rows. If the given column
+    is part of this TreeTable and is the first column on the left side, this
+    returns true. Otherwise, it returns false.
+    */
+    action IsFirstColumn(TreeTableColumn column) returns boolean
+        return columns:IsEmpty() = false and columns:Get(0) = column
+    end
+
+    /*
+    This action refreshes the TreeTable, updating all values in its cells to
+    reflect the current information in the TreeTableRows.
+    */
+    action Refresh
+        Integer cellIndex
+        cellIndex:SetValue(0)
+
+        if NeedsRegeneration(rows, cellIndex)
+            Repopulate()
+        else
+            integer counter = 0
+            repeat while counter < columns:GetSize()
+                TreeTableColumn column = columns:Get(counter)
+                column:Refresh()
+                counter = counter + 1
+            end
+        end
+    end
+
+    /*
+    This action determines if the columns need to be regenerated to match the
+    contents of the TreeTableRows. This is only needed if rows have been 
+    externally rearranged.
+    */
+    private action NeedsRegeneration(Array<TreeTableRow> rows, Integer cellIndex) returns boolean
+        if columns:IsEmpty()
+            return false
+        end
+
+        TreeTableColumn column = columns:Get(0)
+
+        // If the number of rows we're expected to check from the cell index
+        // exceeds the number of cells in the column, we need to regenerate.
+        if cellIndex:GetValue() + rows:GetSize() > column:GetSize()
+            return true
+        end
+
+        integer i = 0
+        repeat while i < rows:GetSize()
+            TreeTableRow sourceRow = rows:Get(i)
+            TreeTableRow targetRow = column:GetCell(cellIndex:GetValue()):GetRow()
+            if sourceRow not= targetRow
+                return true
+            end
+
+            cellIndex:SetValue(cellIndex:GetValue() + 1)
+            i = i + 1
+
+            if sourceRow:IsExpanded()
+                boolean childrenNeedRegeneration = NeedsRegeneration(sourceRow:GetChildren(), cellIndex)
+                if childrenNeedRegeneration or (cellIndex:GetValue() + (rows:GetSize() - i) > column:GetSize())
+                    return true
+                end
+            end
+            
+        end
+
+        return false
+    end
+
+    /*
+    This action empties and repopulates the columns.
+    */
+    private action Repopulate
+        integer counter = 0
+        repeat while counter < columns:GetSize()
+            TreeTableColumn column = columns:Get(counter)
+            column:Empty()
+            PopulateColumn(column, rows)
+            counter = counter + 1
+        end
+    end
+
+    /*
+    This action returns the top-level rows in the TreeTable. If the rows are
+    manipulated, the change will not be apparent in the TreeTable until Refresh
+    is called.
+    */
+    action GetRows returns Array<TreeTableRow>
+        return rows
+    end
+end

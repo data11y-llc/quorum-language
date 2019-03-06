@@ -129,6 +129,7 @@ function plugins_quorum_Libraries_Sound_Audio_()
     var panner;
     var gainNode;
     var loading = false;
+    var loaded = false;
     var looping = false;
     var onloadQueue = [];
    
@@ -251,6 +252,7 @@ function plugins_quorum_Libraries_Sound_Audio_()
                     plugins_quorum_Libraries_Sound_Audio_.audioContext.resume();
                 
                 loading = false;
+                loaded = true;
                 runQueuedActions();
             },
             function(e)
@@ -275,7 +277,7 @@ function plugins_quorum_Libraries_Sound_Audio_()
                 plugins_quorum_Libraries_Sound_Audio_.audioContext.resume();
         
         if (loading === true)
-            onloadQueue.push(Play);
+            onloadQueue.push(this.Play);
         else
         {
             if (this.IsStreaming() === true)
@@ -334,7 +336,7 @@ function plugins_quorum_Libraries_Sound_Audio_()
                 plugins_quorum_Libraries_Sound_Audio_.audioContext.resume();
         
         if (loading === true)
-            onloadQueue.push(Stop);
+            onloadQueue.push(this.Stop);
         else if (this.IsStreaming())
         {
             for (var i = 0; i < playingSamples.length; i++)
@@ -360,7 +362,7 @@ function plugins_quorum_Libraries_Sound_Audio_()
                 plugins_quorum_Libraries_Sound_Audio_.audioContext.resume();
         
         if (loading === true)
-            onloadQueue.push(Stop);
+            onloadQueue.push(this.Stop);
         else if (this.IsStreaming())
         {
             var currentTime = plugins_quorum_Libraries_Sound_Audio_.audioContext.currentTime;
@@ -402,7 +404,7 @@ function plugins_quorum_Libraries_Sound_Audio_()
                 plugins_quorum_Libraries_Sound_Audio_.audioContext.resume();
         
         if (loading === true)
-            onloadQueue.push(Play);
+            onloadQueue.push(this.Play);
         else if (this.IsStreaming())
         {
             if (!(pauseTime > 0 && queuedSamples.length > 0))
@@ -993,6 +995,7 @@ function plugins_quorum_Libraries_Sound_Audio_()
         
         if (loading === true)
         {
+            loaded = true;
             loading = false;
             this.RunQueuedActions();
         }
@@ -1001,6 +1004,7 @@ function plugins_quorum_Libraries_Sound_Audio_()
     this.LoadToStream$quorum_Libraries_Sound_AudioSamples = function(samples)
     {
         streaming = true;
+        loaded = true;
         panner.connect(gainNode);
         gainNode.connect(plugins_quorum_Libraries_Sound_Audio_.audioContext.destination);
         gainNode.gain.value = gain;
@@ -1051,6 +1055,7 @@ function plugins_quorum_Libraries_Sound_Audio_()
     {
         if (this.IsStreaming() === undefined)
         {
+            loaded = true;
             this.LoadToStream$quorum_Libraries_Sound_AudioSamples(samples);
             return;
         }
@@ -1090,5 +1095,10 @@ function plugins_quorum_Libraries_Sound_Audio_()
                 break;
             }
         }
+    };
+    
+    this.IsLoaded = function()
+    {
+        return loaded;
     };
 }
