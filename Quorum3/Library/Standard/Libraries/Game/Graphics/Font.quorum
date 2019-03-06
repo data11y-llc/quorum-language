@@ -10,6 +10,7 @@ use Libraries.Containers.Iterator
 use Libraries.Game.Graphics.Fonts.FontStrategy
 use Libraries.Game.Graphics.Fonts.FreeTypeStrategy
 use Libraries.Game.Graphics.Fonts.QuorumStrategy
+use Libraries.Game.GameStateManager
 
 /*
 The Font class is used to load a font from the system. 
@@ -47,8 +48,8 @@ class Font
     end
     
     private action Setup
-        Properties properties
-        text os = properties:GetOperatingSystemName()
+        GameStateManager manager
+        text os = manager:GetOperatingSystem()
 
         boolean useFreeType = os:Contains("Windows")
         mac = os:Contains("Mac OS X")
@@ -80,6 +81,10 @@ class Font
     action UseQuorumStrategy
         QuorumStrategy quorumStrategy
         strategy = quorumStrategy
+    end
+
+    action SetStrategy(FontStrategy s)
+        strategy = s
     end
 
     /*

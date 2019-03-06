@@ -1,0 +1,580 @@
+package Libraries.Game.Graphics.Fonts
+
+use Libraries.Containers.Array
+use Libraries.Compute.Math
+use Libraries.Language.Support.CompareResult
+use Libraries.Game.Graphics.Fonts.all
+
+/*
+The purpose of this class is to represent an edge of a glyph. It stores information
+about the edge, has actions to create edges, both for straight lines and Bezier
+curves, and has some actions to process some edge information which is used in
+the rasterization process. Some of this may be scrapped eventually, and some of it
+should possibly be moved to a new class or classes. As it stands, our font system
+is already needlessly complex, so ideally we would not add more classes than
+necessary.
+
+Glyph edges have direction, and this is important to remember. They can be both
+ascending/descending and moving left/right. Edges which are ascending mark the
+spot where you begin to fill-in, and descending mark where you stop filling-in.
+
+Some key actions to look at while finishing the rasterizer are:
+    - CalculateScanlines: it's possible this action is causing problems due to rounding
+    - FindXIntercepts: this is incorrectly calculating the x-intercepts for
+    bezier curves
+    - SplitIntoSubArcs: a possible point of optimization for performance (I believe
+    it is functionally sound)
+*/
+class GlyphOutlineEdge
+    Math math   // use math functions a lot, easier to declare a class variable
+    Array<integer> scanlines // stores integers which represent the y-values that are covered by this edge
+    Array<GlyphOutlineEdge> splitEdges // stores "straight" sub-arcs for Bezier curves
+    Array<number> xIntercepts // stores the x-intercept values for Bezier curves, used when filling-in glyphs
+    number startXPosition = 0   // starting x-coordinate for edge
+    number startYPosition = 0   // starting y-coordinate for edge
+    number endXPosition = 0 // ending x-coordinate for edge   
+    number endYPosition = 0 // ending y-coordinate for edge
+    number controlXPosition = 0 // control x-coordinate for edge (only for Bezier)
+    number controlYPosition = 0 // control y-coordinate for edge (only for Bezier)
+    integer yMinimum = 0    // lowest y-value for the edge
+    integer yMaximum = 0    // highest y-value for the edge
+    boolean isBezierCurve = false   // flag to indicate Bezier curve
+    boolean isAscending = false // flag to indicate direction of edge
+    boolean isHorizontal = false    // flag to indicate if an edge if horizontal
+    boolean isVertical = false  // flag to indicate if an edge is vertical
+    number slope = 0.0  // slope of the edge
+    number yIntercept = 0.0 // y-intercept of the edge
+    boolean movingLeftToRight = false   // flag to indicate if an edge if moving left to right
+    number currentXPosition = 0.0   // used for straight lines, the x-value to begin filling-in from, or stopping a fill
+    integer currentYPosition = 0    // used for straight lines, the current y-value of the scan process
+    integer yIndex = 0  // used when updating the current x position
+    integer edgeNumber = 0  // primarily for debugging, number of the edge in a glyph
+    boolean isYMonotonic = false    // flag to check if an edge is monotonic on the y-axis
+
+    // This action returns the array of sub-arcs making up a Bezier curve
+    action GetSplitEdgeArray() returns Array<GlyphOutlineEdge>
+        return splitEdges
+    end
+
+    // This action returns the edge number of an edge (does not work for sub-arcs)
+    // Used for testing when you draw a Glyph on graph paper and number the edges
+    // so you can try to see what is going on (I did this often, it helps)
+    action GetEdgeNumber() returns integer
+        return edgeNumber
+    end
+
+    // This is an override for the sort an an array of GlyphOutlineEdges
+    // It sorts the array in ascending order, with the edge containing the
+    // lowest x-value at the start of the array. This is essential to the
+    // rasterization process as outlined in the FreeType rasterization text file
+    // I linked in the resource section of the Font document.
+    action Compare(Object object) returns CompareResult
+        CompareResult result
+        if object is GlyphOutlineEdge
+            GlyphOutlineEdge edge = cast(GlyphOutlineEdge, object)
+            if currentXPosition > edge:GetCurrentXPosition()
+                result:result = result:LARGER
+            elseif currentXPosition < edge:GetCurrentXPosition()
+                result:result = result:SMALLER
+            else
+                result:result = result:EQUAL
+            end
+            return result
+        else
+            return parent:Object:Compare(object)
+        end
+    end
+
+    // Returns the current x position of the edge. Used for straight lines, basically
+    // the x-intercept to start filling-in.
+    action GetCurrentXPosition() returns number
+        return currentXPosition
+    end
+
+    // This calculates the x-value to begin filling-in for straight lines
+    // There is a different process used for Bezier curves
+    // I believe this is working correctly, but may need to be looked at
+    // Also corrects the x-value if it goes above/below an edge endpoint.
+    action CalculateCurrentXPosition()
+        // y = mx + b => (y-b)/m = x
+        if not isBezierCurve
+            if slope not= 0 and not isVertical // not vertical and not horizontal
+                currentXPosition = (currentYPosition - yIntercept) / slope
+                if movingLeftToRight
+                    if currentXPosition > endXPosition
+                        currentXPosition = endXPosition
+                    elseif currentXPosition < startXPosition
+                        currentXPosition = startXPosition
+                    end
+                else
+                    if currentXPosition > startXPosition
+                        currentXPosition = startXPosition
+                    elseif currentXPosition < endXPosition
+                        currentXPosition = endXPosition
+                    end
+                end
+            elseif isVertical
+                currentXPosition = startXPosition
+            // horizontal edges aren't processed
+            end
+        end
+    end
+
+    // Used in the edge updating loop, updates the current x value for the edge
+    // for the next scanline (y-value). For straight lines, does the same as
+    // the above action. For Bezier, it uses the yIndex to index into the xIntercepts
+    // array
+    action UpdateCurrentXPosition()
+        currentYPosition = currentYPosition + 1
+        yIndex = yIndex + 1
+        if not isBezierCurve
+            if slope not= 0 and not isVertical // not vertical and not horizontal
+                if currentYPosition < yMaximum
+                    currentXPosition = (currentYPosition - yIntercept) / slope
+                    if movingLeftToRight
+                        // correcting for extending beyond the start/end points
+                        if currentXPosition > endXPosition
+                            currentXPosition = endXPosition
+                        elseif currentXPosition < startXPosition
+                            currentXPosition = startXPosition
+                        end
+                    else
+                        if currentXPosition > startXPosition
+                            currentXPosition = startXPosition
+                        elseif currentXPosition < endXPosition
+                            currentXPosition = endXPosition
+                        end
+                    end
+                end
+            end
+        else    // bezier curve case
+            if currentYPosition < yMaximum  // prevents some weird edge cases
+                currentXPosition = xIntercepts:Get(yIndex)
+            end
+        end
+    end
+
+    // Returns if the edge is moving from left to right
+    action GetMovingLeftToRight() returns boolean
+        return movingLeftToRight
+    end
+
+    // Sets the flag indicating the edge is a Bezier curve, used in the rasterizer
+    // when creating edges from the BezierCurveGlyphPoints
+    action SetIsBezierCurve(boolean flag)
+        isBezierCurve = flag
+    end
+
+    // Returns the starting x-coordinate of the edge
+    action GetStartXPosition() returns number
+        return startXPosition
+    end
+
+    // Returns the starting y-coordinate of the edge
+    action GetStartYPosition() returns number
+        return startYPosition
+    end
+
+    // Returns the end x-coordinate of the edge
+    action GetEndXPosition() returns number
+        return endXPosition
+    end 
+
+    // Returns the end y-coordinate of the edge
+    action GetEndYPosition() returns number
+        return endYPosition
+    end
+
+    // Returns the control x-coordinate of the Bezier curve
+    action GetControlXPosition() returns number
+        return controlXPosition
+    end
+    
+    // Returns the control y-coordinate of the Bezier curve
+    action GetControlYPosition() returns number
+        return controlYPosition
+    end
+
+    // Returns the minimum y-value this edge covers
+    action GetYMinimum() returns integer
+        return yMinimum
+    end
+
+    // Returns the maximum y-value this edge covers
+    action GetYMaximum() returns integer
+        return yMaximum
+    end
+
+    // Returns whether or not this edge is a Bezier curve
+    action GetIsBezierCurve() returns boolean
+        return isBezierCurve
+    end
+
+    // Returns whether or not this edge is ascending
+    action GetIsAscending() returns boolean
+        return isAscending
+    end
+
+    // Returns whether or not this edge is horizontal
+    action GetIsHorizontal() returns boolean
+        return isHorizontal
+    end 
+
+    // Returns the array containing y-values that this edge covers
+    // i.e. if an edge runs from (0, 0) to (0, 10) it will return an array
+    // containing integers 0-10.
+    action GetScanlines() returns Array<integer>
+        return scanlines
+    end
+
+    // This action calculates the scanlines (y-values) that an edge fall on
+    // and stores them in the scanlines array
+    action CalculateScanlines()
+        number minimum = 0
+        number maximum = 0
+        integer scanlinePosition = 0
+        // possible rounding problems here, but I think I fixed them...
+        integer startYInteger = cast(integer, math:Floor(startYPosition))
+        integer endYInteger = cast(integer, math:Floor(endYPosition))   //ceiling? could need to store the fractional part?
+
+        // again, possible rounding/inconsistency issues with the math calls
+        if isAscending  // line starts from lower y position and moves to higher one
+            minimum = math:Round(startYPosition)
+            maximum = math:Round(endYPosition)
+        else        // line starts from higher y position and moves to lower one
+            minimum = math:Round(endYPosition)
+            maximum = math:Round(startYPosition)
+        end
+
+        yMinimum = cast(integer, minimum)
+        yMaximum = cast(integer, maximum)
+        scanlinePosition = cast(integer, minimum)
+
+        repeat while scanlinePosition <= maximum
+            scanlines:Add(scanlinePosition)
+
+            scanlinePosition = scanlinePosition + 1
+        end
+
+        // current process runs from y=0 to y=max, so initialize currentY to the minimum
+        currentYPosition = yMinimum
+    end
+
+    // determines if the edge is ascending or descending and sets flags
+    action CalculateAscending()
+        if startYPosition < endYPosition
+            isAscending = true
+            isHorizontal = false
+        elseif startYPosition > endYPosition
+            isAscending = false
+            isHorizontal = false
+        else    // horizontal case
+            isAscending = false
+            isHorizontal = true
+        end
+    end
+
+    // Creates an edge for a straight line, initializes some values
+    // See individual action documentation for details
+    action CreateEdge(CoordinateVector startPoint, CoordinateVector endPoint, integer newEdgeNumber)
+        startXPosition = startPoint:GetX()
+        startYPosition = startPoint:GetY()
+        endXPosition = endPoint:GetX()
+        endYPosition = endPoint:GetY()
+        edgeNumber = newEdgeNumber
+        CalculateAscending()
+        CalculateVertical()
+        CalculateMovingLeftToRight()
+        CalculateScanlines()
+        CalculateSlopeAndYIntercept()   
+        CalculateCurrentXPosition()
+    end
+
+    // This action calculates if an edge is y-monotonic or not and sets flags accordingly
+    // This is important because we need edges to only move in one direction along
+    // the y-axis in order for the algorithm to work. This check is mostly as
+    // a precaution, because the way we create BezierCurveGlyphPoints I believe
+    // edges are always y-monotonic, but it will prevent error if that assumption is wrong
+    action CalculateIsYMonotonic()
+        if startYPosition = controlYPosition and controlYPosition = endYPosition    // "flat" arc
+            isYMonotonic = true
+            isAscending = false
+            isHorizontal = true
+            isVertical = false
+        elseif startYPosition <= controlYPosition and controlYPosition <= endYPosition  // ever-ascending arc
+            isYMonotonic = true
+            isAscending = true
+            isHorizontal = false
+            isVertical = false
+        elseif startYPosition >= controlYPosition and controlYPosition >= endYPosition  // ever-descending arc
+            isYMonotonic = true
+            isAscending = false
+            isHorizontal = false
+            isVertical = false
+        else    // non-monotonic arc
+            isYMonotonic = false
+        end
+    end
+
+    // This action creates edges out of a Bezier curve. The main difference
+    // between this and the straight line Create action is this has to subdivide
+    // the curve into smaller "straight" segments
+    action CreateBezierEdge(CoordinateVector startPoint, CoordinateVector endPoint, CoordinateVector controlPoint, integer newEdgeNumber)
+        startXPosition = startPoint:GetX()
+        startYPosition = startPoint:GetY()
+        endXPosition = endPoint:GetX()
+        endYPosition = endPoint:GetY()
+        controlXPosition = controlPoint:GetX()
+        controlYPosition = controlPoint:GetY()
+        edgeNumber = newEdgeNumber
+        CalculateIsYMonotonic()
+        CalculateMovingLeftToRight()
+        if isYMonotonic
+            CalculateScanlines()
+            SplitIntoSubArcs(me)
+        else    // this should never happen, but if it does it will help you debug
+            output "Not y monotonic. Something is wrong"
+        end
+    end
+
+    // The idea behind this action is to calculate the x-values that correspond
+    // to every y-value/scanline for a Bezier curve and store them in an array
+    // Then, when they are needed during the fill-in process, we simply access
+    // the array and get the correct value to begin/end filling-in.
+    // This is definitely incorrect in its current implementation, and I will comment
+    // throughout the action to try to explain what is going on, what I think is wrong
+    // and how I think it can be fixed
+    // The values should be stored in ascending order to work with the algorithm
+    action FindXIntercepts()
+        // initialize xIntercepts array to arbitrarily large/small values
+        // we want to do this for every possible scanline of the edge (min to max)
+        integer i = yMinimum
+        repeat while i <= yMaximum
+            /*
+            Ascending edges mark where we begin filling a glyph in, descending edges
+            mark where we stop filling a glyph in. This means for ascending edges
+            we want the largest value of x and for descending edges we want the
+            smallest value of x
+            */
+            if isAscending  // we want the right-most x-coordinates for each edge so initialize to a small number
+                xIntercepts:Add(-9999)
+            else            // we want the left-most x-coordinates for each edge so initialize to a large number
+                xIntercepts:Add(9999)
+            end
+
+            i = i + 1
+        end
+
+        i = yMinimum
+        integer index = 0
+        // iterate over every scanline, check each sub-arc for each scanline
+        repeat while i <= yMaximum
+            integer j = 0
+            // checking each sub-arc for each scanline
+            repeat while j < splitEdges:GetSize()
+                GlyphOutlineEdge edge = splitEdges:Get(j)
+                number startX = edge:GetStartXPosition()
+                // again, possible rounding issue here
+                number startY = math:Round(edge:GetStartYPosition())    
+                number endX = edge:GetEndXPosition()
+                // possible rounding issue here
+                number endY = math:Round(edge:GetEndYPosition())    
+                // slope for the sub-arc
+                number slope = (endY - startY) / (endX - startX)
+                // y-intercept for the sub-arc (y = mx + b)
+                number yIntercept = endY - (slope * endX)
+                number value = 0
+                if i >= startY and i <= endY or i <= startY and i >= endY   // split falls on the current scanline
+                /*
+                The current method simply uses the start or end x-value of a sub-arc
+                For a sub-arc that only spans a single scanline, this is not a problem
+                This has problems though when you realize that a sub-arc may span
+                many x-values and covers two scanlines (it is never more than two due to
+                the current subdivision algorithm implementation). So I thought about
+                calculating the x-intercept for a line using y = mx + b, and it
+                seems to improve the filling-in in some places, but it is broken
+                in others (try it to see what I mean). I still think this is the
+                right approach, but it will mean making some adjustments elsewhere
+                in the rasterization process. I am 99% sure this is the biggest
+                problem with the glyphs looking bad though. If it isn't, getting
+                this right will at least be necessary to fix the problem.
+                */
+                    value = (i - yIntercept) / slope
+                    // The commented out lines are my attempt at using better x-values
+                    // You can try them to see what happens using that method
+                    if isAscending
+                        if movingLeftToRight  // use the end x value
+                            //if value > xIntercepts:Get(index)
+                            if endX > xIntercepts:Get(index)
+                                //xIntercepts:Set(index, value)
+                                xIntercepts:Set(index, endX)
+                            end
+                        else    // use the start x value
+                            //if value > xIntercepts:Get(index)
+                            if startX > xIntercepts:Get(index)
+                                //xIntercepts:Set(index, value)
+                                xIntercepts:Set(index, startX)
+                            end
+                        end
+                    else
+                        if movingLeftToRight  // use the start x value
+                            //if value < xIntercepts:Get(index)
+                            if startX < xIntercepts:Get(index)
+                                //xIntercepts:Set(index, value)
+                                xIntercepts:Set(index, startX)
+                            end
+                        else    // use the end x value
+                            //if value < xIntercepts:Get(index)
+                            if endX < xIntercepts:Get(index)
+                                //xIntercepts:Set(index, value)
+                                xIntercepts:Set(index, endX)
+                            end
+                        end
+                    end
+                end
+                
+                j = j + 1
+            end
+            index = index + 1
+            i = i + 1
+        end
+
+        // intialize the current x-value of a Bezier curve to the smallest value
+        currentXPosition = xIntercepts:Get(0)
+    end
+
+    // This is the subdivision algorithm for Bezier curves
+    // I have modeled this after the method outlined in the FreeType rasterization
+    // text file I link in the Resources section of the Font document
+    // I have tested it quite a bit, and as far as I know it is working correctly
+
+    // This is going to be the biggest spot for optimization in terms of performance
+    // if that turns out to be a problem
+   
+    // Currently, it splits a Bezier curve into smaller Bezier curves
+    // Once these smaller curves cover no more than two y-values, it stops
+    // subdivision, uses the start/end values of the sub-arc to create a normal
+    // GlyphOutlineEdge, and stores them in this objects array of GlyphOutlineEdges
+    private action SplitIntoSubArcs(GlyphOutlineEdge edge)
+        // Reference the FreeType rasterization.txt file for what these
+        // variables represent. I realize the names are not good, but I wanted
+        // them to match what they are modeled after so that referencing them
+        // is easy
+        number Q1x = 0.0
+        number Q1y = 0.0
+        number Q2x = 0.0
+        number Q2y = 0.0
+        number Q3x = 0.0
+        number Q3y = 0.0
+        number R1x = 0.0
+        number R1y = 0.0
+        number R2x = 0.0
+        number R2y = 0.0
+        number R3x = 0.0
+        number R3y = 0.0
+        number P1x = edge:GetStartXPosition()
+        number P1y = edge:GetStartYPosition()
+        number P2x = edge:GetControlXPosition()
+        number P2y = edge:GetControlYPosition()
+        number P3x = edge:GetEndXPosition()
+        number P3y = edge:GetEndYPosition()
+      
+        // If this sub-arc is sufficiently small (it covers no more than 2 scanlines)
+        // then create a regular edge out of it and store it in the array
+        if math:AbsoluteValue(P1y - P3y) < 1
+            CoordinateVector startPoints
+            CoordinateVector endPoints
+            GlyphOutlineEdge newEdge
+            startPoints:SetX(edge:GetStartXPosition())
+            startPoints:SetY(edge:GetStartYPosition())
+            endPoints:SetX(edge:GetEndXPosition())
+            endPoints:SetY(edge:GetEndYPosition())
+            newEdge:CreateEdge(startPoints, endPoints, edge:GetEdgeNumber())
+            splitEdges:Add(newEdge)
+        else
+            // Edge not small enough, continue subdivision
+            // This creates two new Bezier curves from the original
+            // and recurses on them
+            Q1x = P1x
+            Q1y = P1y
+            Q2x = (P1x + P2x)/2
+            Q2y = (P1y + P2y)/2
+            R3x = P3x
+            R3y = P3y
+            R2x = (P2x + P3x)/2
+            R2y = (P2y + P3y)/2
+            Q3x = (Q2x + R2x)/2
+            Q3y = (Q2y + R2y)/2
+            R1x = Q3x
+            R1y = Q3y
+
+            GlyphOutlineEdge edge1
+            GlyphOutlineEdge edge2
+            CoordinateVector start
+            CoordinateVector control
+            CoordinateVector ending
+
+            start:SetX(Q1x)
+            start:SetY(Q1y)
+            control:SetX(Q2x)
+            control:SetY(Q2y)
+            ending:SetX(Q3x)
+            ending:SetY(Q3y)
+
+            edge1:CreateBezierEdge(start, ending, control, -edge:GetEdgeNumber())
+
+            start:SetX(R1x)
+            start:SetY(R1y)
+            control:SetX(R2x)
+            control:SetY(R2y)
+            ending:SetX(R3x)
+            ending:SetY(R3y)
+
+            edge2:CreateBezierEdge(start, ending, control, -edge:GetEdgeNumber())
+
+            SplitIntoSubArcs(edge1)
+            SplitIntoSubArcs(edge2)
+        end
+    end
+
+    // Calculates the slope and y-intercept value for a straight line
+    action CalculateSlopeAndYIntercept()
+        integer i = 0
+        if not isHorizontal
+            if not isVertical
+                slope = (endYPosition-startYPosition)/(endXPosition-startXPosition)
+            end
+            yIntercept = startYPosition - slope * startXPosition
+        end    
+    end
+
+    // Sets the flag for if the edge is vertical or not
+    action CalculateVertical()
+        if endXPosition - startXPosition = 0    // vertical line
+            isVertical = true
+        else
+            isVertical = false
+        end
+    end
+
+    // Sets the flag for whether or not the edge moves from left to right
+    action CalculateMovingLeftToRight()
+        if startXPosition < endXPosition
+            movingLeftToRight = true
+        else
+            movingLeftToRight = false
+        end
+    end
+
+    // An action I used for debugging, useful when drawing glyphs on graph paper
+    // and getting some info about edges
+    action ToText()
+        output "This edge begins at: (" + startXPosition + ", " + startYPosition + ") and ends at: (" + endXPosition + ", " + endYPosition + ")."
+        //output "It is ascending: " + isAscending
+        //output "It is vertical: " + isVertical
+        //output "It is horizontal: " + isHorizontal
+        output "It spans from " + yMinimum + " to " + yMaximum + "."
+    end
+
+    
+end

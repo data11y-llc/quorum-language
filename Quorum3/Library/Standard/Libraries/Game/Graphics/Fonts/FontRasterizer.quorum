@@ -1,1162 +1,1061 @@
 package Libraries.Game.Graphics.Fonts
 
+use Libraries.Game.Game
 use Libraries.Game.Graphics.PixelMap
-use Libraries.Containers.Array
-use Libraries.Containers.HashTable
-use Libraries.Containers.Iterator
-use Libraries.Game.Graphics.Color
-use Libraries.Game.Graphics.Drawable
-use Libraries.Game.Graphics.Texture
-use Libraries.Game.Graphics.Format
-use Libraries.Compute.Math
 use Libraries.Game.Graphics.Fonts.all
+use Libraries.Containers.Array
+use Libraries.System.File
+use Libraries.Game.Graphics.Format
+use Libraries.Game.Graphics.Texture
+use Libraries.Game.Graphics.Drawable
+use Libraries.Game.Graphics.Color
+use Libraries.Game.ScreenResolution
+use Libraries.Compute.Math
+use Libraries.Game.Graphics.Camera
+use Libraries.Game.Graphics.Label
+use Libraries.Game.Graphics.Font
+use Libraries.Containers.List
+use Libraries.Interface.Item2D
+use Libraries.Compute.BitwiseOperations
+use Libraries.Game.Graphics.Blending
+use Libraries.Language.Support.CompareResult
+use Libraries.Containers.HashTable
+use Libraries.Game.Graphics.Fonts.GlyphOutlineEdge
 
 /*
-The FontRasterizer class is used to rasterize characters. This means creating
-a character's outline, filling it in, and saving the drawable for display, scaled
-to the desired size.
+This is the main testing file for the new rasterizer. It follows the general
+process as outlined in the FreeType rasterization.txt file that I linked in my
+Font file under the Resources section. This file should make testing the rasterizer
+fast and easy, as well as make sure it hits all the marks to see if anything is
+broken. Once the rasterizer is working, I suggest adopting the click-to-cycle system 
+I have in the FontVisualTester file from the Font Testing project on this same
+repository. This allows you to quickly and easily check every font file on the
+system. I have left it out for now because it only makes this more cumbersome
+while working on it, and it isn't necessary to test all font files when  it is
+still fundamentally wrong.
 
-Attribute: Example
+I strongly recommend you do all your work here since it eliminates the constant
+bootstrapping hassle of making changes in the standard library. 
 
-    use Libraries.Game.Graphics.Fonts.all
-    use Libraries.Game.Game
-    use Libraries.Game.Graphics.Color
-    use Libraries.System.File
-
-    class Main is Game
-        action Main
-            StartGame()
-        end
-
-        action CreateGame
-            FontFileReader fileReader
-            File file
-            // This is the working directory for fonts on Mac
-            file:SetWorkingDirectory("/Library/Fonts")
-            file:SetPath("Arial.ttf")
-            fileReader:Load(file)
-            TrueTypeFileInformation fileInformation = fileReader:GetFileInformation()
-            FontRasterizer fontRasterizer
-            Color color
-            BezierCurveGlyphPoints glyphOutline = fileReader:GetCharacterGlyphPoints("a")
-            FontDrawable fontDrawable = fontRasterizer:DrawGlyph(glyphOutline, 0, 0, color, fileInformation) 
-        end
-    end
+        *****READ THE RASTERIZATION.TXT FILE AND UNDERSTAND IT*****
 */
-class FontRasterizer 
-    /*Size of a pixel on the display.*/
-    integer pixelSize = 14  // pixel size differs based on resolution, may have to change this
-    /*Size of the EM Square.*/
-    integer emSize = 2048  //2048 is standard in TrueType
-    /*Dots per inch on the x-axis.*/
-    integer xDotsPerInch = 96
-    /*Dots per inch on the y-axis.*/
-    integer yDotsPerInch = 96
-    /*Maximum height of the pixelmap.*/
-    integer maximumSizeYAxis = 40
-    /*Maximum width of the pixelmap.*/
-    integer maximumSizeXAxis = 40
-    private integer int = 1337
-    /*Leftmost coordinate position, on the x-axis, of the pixelmap.*/
-    integer xMinimum = int:GetMaximumValue()
-    /*Rightmost coordinate position, on the x-axis, of the pixelmap.*/
-    integer xMaximum = int:GetMinimumValue()
-    /*Lowermost coordinate position, on the y-axis, of the pixelmap.*/
-    integer yMinimum = int:GetMaximumValue()
-    /*Uppermost coordinate position, on the y-axis, of the pixelmap.*/
-    integer yMaximum = int:GetMinimumValue()
+class FontRasterizer
+    integer emSize = 2048
+    integer pixelSize = 14
+    // The lowest y-value (scanline) this glyph has
+    integer scanlineMaximum = -99999999
+    // The highest y-value this glyph has
+    integer scanlineMinimum = 99999999
+    // The left-most x-value of the glyph (used for the pixelmap)
+    integer xMinimum = 999999999
+    // The right-most x-value of the glyph (used for the pixelmap)
+    integer xMaximum = -999999999
+    // The width of the glyph in pixels
+    integer glyphWidth = 0
+    // The height of the glyph in pixels
+    integer glyphHeight = 0
+    // This array stores the edges making up a glyph
+    Array<GlyphOutlineEdge> edges
+    // Math is used everywhere, class variable for easy access
+    Math math
+    // Color is used when drawing the outline and filling it in, used in many spots
+    // so a class variable makes it easier. Useful to change this to other colors
+    // to test things out
+    //Color color
+    // Width of the game window to create
+    screenXSize = 1400
+    // Height of the game window to create
+    screenYSize = 900
+    // Font size to use, make sure you test lots of sizes to see if it works right
+    // I would not go below size 10, personally, since it needs hinting to really
+    // work. 
+
 
     /*
-    This action calculates and returns a scaled coordinate position of a coordinate, based
-    on the font and screen size.
-
-    Attribute: Parameter coordinate The coordinate to scale.
-
-    Attribute: Parameter pixelSize The font size.
-
-    Attribute: Parameter emSize The size of the EM Square.
-
-    Attribute: Returns Returns the scaled coordinate position of a coordinate.
-
-    Attribute: Example
-
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-
-            action CreateGame
-                FontRasterizer rasterizer
-                output rasterizer:CalculateScaledCoordinate(10000, 12, 2048)
-            end
-        end
+    The algorithm relies on the edges being in two categories: opening and closing
+    or left and right respectively. These lists store the edges that are still
+    active in the algorithm process, meaning during the scanning process, the edge
+    has a y-value corresponding to the current scanline. Once the scanline extends
+    beyond the highest y-value of an edge, the edge is removed from these lists.
     */
-    action CalculateScaledCoordinate(integer coordinate, integer pixelSize, integer emSize) returns integer
-        return coordinate * pixelSize / emSize
-    end
+    List<GlyphOutlineEdge> activeEdgeListLeft
+    List<GlyphOutlineEdge> activeEdgeListRight
 
-    /* 
-    This action calculates the height of the glyph.
+    /*
+    An array of arrays...Basically, for every y-value the glyph covers, there is
+    a "bucket" for the y-value. Each of these y-values/scanlines is associated
+    with an array of GlyphOutlineEdge. The association is as such: if an edge
+    starts on y = 0, then scanlineBuckets[0] gets this edge array.
     */
-    private action CalculateGlyphHeight(Array<Line> lines, Array<number> maximums) returns number
-        number lowestPoint = 0
-        number highestPoint = 0
-        Math math
+    Array<Array<GlyphOutlineEdge>> scanlineBuckets
 
-        if lines:GetSize() > 0
-            Line line = lines:Get(0)
-            lowestPoint = line:GetY1()
-            highestPoint = line:GetY2()
-        end
-         
-        integer i = 0
-        repeat while i < lines:GetSize()
-            Line line = lines:Get(i)
-            if line:GetY1() < lowestPoint
-                lowestPoint = line:GetY1()
-            elseif line:GetY2() < lowestPoint
-                lowestPoint = line:GetY2()
-            end
-    
-            if line:GetY1() > highestPoint
-                highestPoint = line:GetY1()
-            elseif line:GetY2() > highestPoint
-                highestPoint = line:GetY2()
-            end
-            i = i + 1
-        end    
+    /*
+    This is the Bezier curve anti-alias action. The approach used is grid-based
+    super sampling, which you can google but I will explain briefly here.
+
+    The idea is you take a pixel, subdivide it into smaller sections, and then
+    for each of these sections you see if the edge falls within the sub-pixel.
+    If it does, you add it to a running sum of coverage for the pixel, and if
+    it doesn't you don't add anything. Once you check every subpixel, you divide
+    the total covered by the total subpixels, and this gives you the pixel coverage
+    When using a value of 256, we can get 256 different shades of gray and color
+    an outline appropriately.
+
+    I *think* this is finally correct, but you should definitely look through it
+    and see if you can improve it or find problems with it. Additionally, it would
+    be nice to make it so straight lines use this same action instead of its own
+    as it currently does, although I don't think it is necessary as straight lines
+    seem to be good.
+    */
+    action TestCoverage(PixelMap pixelMap, GlyphOutlineEdge edge)
+        number startX = edge:GetStartXPosition()
+        number startY = edge:GetStartYPosition()
+        number endX = edge:GetEndXPosition()
+        number endY = edge:GetEndYPosition()
+        number slope = (endY - startY)/(endX - startX)
+        number yIntercept = startY - slope * startX
+        number minX = startX
+        number maxX = endX
+        number minY = startY
+        number maxY = endY
+        integer height = pixelMap:GetHeight() - 1
+        boolean movingLeftToRight = true
+        boolean ascending = true
+        Color color
         
-        number height = math:AbsoluteValue(lowestPoint - highestPoint)
-        maximums:Add(0, lowestPoint)
-        maximums:Add(1, highestPoint)
-        return height
-    end
 
-    /*
-    This action calculates the width of the glyph.
-    */
-    private action CalculateGlyphWidth(Array<Line> lines) returns number
-        number leftPoint = 0
-        number rightPoint = 0
-        Math math
-
-        if lines:GetSize() > 0
-            Line line = lines:Get(0)
-            leftPoint = line:GetX1()
-            rightPoint = line:GetX2()
-        end
-
-        integer i = 0
-        repeat while i < lines:GetSize()
-            Line line = lines:Get(i)
-            if line:GetX1() < leftPoint
-                leftPoint = line:GetX1()
-            elseif line:GetX2() < leftPoint
-                leftPoint = line:GetX2()
-            end
-
-            if line:GetX1() > rightPoint
-                rightPoint = line:GetX1()
-            elseif line:GetX2() > rightPoint
-                rightPoint = line:GetX2()
-            end
-            i = i + 1
-        end
-        number width = math:AbsoluteValue(leftPoint - rightPoint) + 20 // arbitrary addition to fix characters being cut off, not sure what to add here
-        return width
-    end
-
-    /*
-    This action creates a pixel map of the character so that it may be drawn to
-    the screen. It returns a FontDrawable which contains this pixel map, as well
-    as information pertaining to the glyph.
-
-    Attribute: Parameter outline The Bezier curve glyph points of the character to draw.
-
-    Attribute: Parameter offsetx The horizontal offset to use when calculating points.
-
-    Attribute: Parameter offsety The vertical offset to use when calculating points.
-
-    Attribute: Parameter color The color to draw the character in.
-
-    Attribute: Parameter information The TrueTypeFileInformation for the font.
-
-    Attribute: Returns Returns a FontDrawable of the character, including its pixelmap.
-
-    Attribute: Example
-
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-        use Libraries.Game.Graphics.Color
-        use Libraries.System.File
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-
-            action CreateGame
-                FontFileReader fileReader
-                File file
-                // This is the working directory for fonts on Mac
-                file:SetWorkingDirectory("/Library/Fonts")
-                file:SetPath("Arial.ttf")
-                fileReader:Load(file)
-                TrueTypeFileInformation fileInformation = fileReader:GetFileInformation()
-                FontRasterizer fontRasterizer
-                Color color
-                BezierCurveGlyphPoints glyphOutline = fileReader:GetCharacterGlyphPoints("a")
-                FontDrawable fontDrawable = fontRasterizer:DrawGlyph(glyphOutline, 0, 0, color, fileInformation) 
-            end
-        end
-    */
-    action DrawGlyph(BezierCurveGlyphPoints outline, integer offsetx, integer offsety, Color color, TrueTypeFileInformation information) returns FontDrawable
-        FontBoundingBox box = outline:GetBoundingBox()
-        integer highPoint = CalculateScaledCoordinate(box:GetYMaximum(), pixelSize, information:GetUnitsPerEm()) + 1
-        integer lowPoint = CalculateScaledCoordinate(box:GetYMinimum(), pixelSize, information:GetUnitsPerEm()) -1
-
-        output "Inside FontRasterizer, outline has points: "
-        outline:DisplayCoordinates()
-
-        Format format = SetupFormat()
-        Array<Line> linesToDraw = GetLinesToDraw(outline, emSize)
-        Array<number> maximums
-        number height = CalculateGlyphHeight(linesToDraw, maximums) + 1
-        number heightFromBaseline = highPoint
-        PixelMap pixelmap = SetupPixelMap(maximumSizeYAxis, height, format)     // at some point, change the maximumSizeYAxis to use the value calculated by the width function
-
-        pixelmap = RenderAntiAliasedOutline(offsetx, offsety, pixelmap, outline, emSize, color, false, maximums)  // draws the glyph outline
-        //pixelmap = RenderRasterizedGlyph(offsetx, offsety, pixelmap, outline, color, linesToDraw, maximums) // fills in the glyphs
+        // You can adjust this if you'd like, but FreeType uses 256 shades of gray
+        // To me, 64 looks just as good and is a lot better performance-wise
+        // This is the number of sub-pixels to divide a pixel into
+        number sampleSize = 256
+        // The number of subpixels in a row/column
+        number squareRootSampleSize = math:SquareRoot(sampleSize)
+        // We want to move along the x and y axes one sub-pixel at a time, so
+        // this is the increment for that
+        number sampleIncrement = 1/squareRootSampleSize
+        // Stores the current color value of the pixel
+        number currentPixelValue = 0
+        // The number of subpixels covered by the edge
+        integer subPixelsCovered = 0
+        // Start scanning at the lowest y-value of the edge
+        number currentY = startY
+        // Stop scanning at the highest y-value of the edge
+        number yScanBoundary = endY
         
-        Texture tex
-        tex:FinishLoadingAsynchronously(undefined, pixelmap, format, false, undefined)
-        Drawable d
-        d:Load(tex)
-
-        FontDrawable glyph
-        glyph:SetDrawable(d)
-        glyph:SetXMaximum(xMaximum)
-        glyph:SetYMaximum(yMaximum)
-        glyph:SetXMinimum(xMinimum)
-        glyph:SetYMinimum(yMinimum)
-        glyph:SetHeightFromBaseline(heightFromBaseline)
-
-        return glyph
-    end
-
-    /*
-    This action fills in the glyphs, based on the outline. It scans line by line
-    on the y-axis, and when it enters a glyph outline it starts drawing, and it
-    stops once it exits a glyph outline. It then returns the pixelmap of a
-    character.
-
-    Attribute: Parameter offsetx The horizontal offset to use when calculating points.
-
-    Attribute: Parameter offsety The vertical offset to use when calculating points.
-
-    Attribute: Parameter pixelmap The pixelmap to draw the character to.
-
-    Attribute: Parameter outline The Bezier curve glyph points of the character.
-
-    Attribute: Parameter color The color to draw the character.
-    
-    Attribute: Parameter linesToDraw An array of all the lines to draw for the character.
-
-    Attribute: Parameter maximums An array containing the maximum values of the glyph,
-    including its highest y-axis coordinate position and its rightmost x-axis
-    coordinate position.
-
-    Attribute: Returns Returns a pixelmap of the character.
-    */
-    private action RenderRasterizedGlyph(integer offsetx, integer offsety, PixelMap pixelmap, BezierCurveGlyphPoints outline, Color color, Array<Line> linesToDraw, Array<integer> maximums) returns PixelMap
-        integer lowerX = 0
-        integer lowerY = 0
-        integer upperX = pixelmap:GetWidth()
-        integer upperY = pixelmap:GetHeight()
-        Math math
-        offsety = math:AbsoluteValue(upperY-maximums:Get(1)-1)
-
-        integer i = 0
-        repeat while i < linesToDraw:GetSize()
-            Line line = linesToDraw:Get(i)
-
-            //pixelmap:DrawLine(line:GetX1() + offsetx, line:GetY1() - offsety, line:GetX2()+ offsetx, line:GetY2() - offsety, color)
-           
-            i = i + 1
+        // for moving right to left, swap values
+        if minX > maxX
+            minX = endX
+            maxX = startX
+            movingLeftToRight = false
         end
-        return pixelmap
+
+        // For descending, swap values
+        if minY > maxY
+            minY = endY
+            maxY = startY
+            ascending = false
+        end
+
+        currentY = minY
+        yScanBoundary = maxY
+
+        /*
+        This sets the end-point for scanning along the x-axis. For ascending lines,
+        which indicate to begin filling a glyph in, we want the highest x-value
+        on the edge. For descending lines, which indicate to end filling a glyph
+        in, we want the lowest x-value on the edge.
+        
+        Again, possible rounding problems here. It's also possible that this is
+        wrong in the same way that the xIntercept calculation is wrong, where it
+        always uses the same value instead of calculates one for each scanline.
+        */
+        integer xScanBoundary = 0
+        if ascending and movingLeftToRight
+            xScanBoundary = cast(integer, math:Ceiling(endX))
+        elseif ascending and not movingLeftToRight
+            xScanBoundary = cast(integer, math:Ceiling(startX))
+        elseif not ascending and movingLeftToRight
+            xScanBoundary = cast(integer, math:Floor(startX))
+        elseif not ascending and not movingLeftToRight
+            xScanBoundary = cast(integer, math:Floor(endX))
+        end
+
+        currentY = minY
+
+        // Algorithm outline:
+        // iterate from the lowest y value to the highest y value (yScanBoundary), increasing using sample increment (currentY)
+        // calculate x intercept of the line at each y-sample: x = (y - b) / m
+            // make sure the x-value is bounded by the start/end x position
+        // iterate from calculated x-position to xScanBoundary
+        // add the  number of x-samples covered for each x/y pixel position to the corresponding pixel
+        // i.e. ascending left to right line:
+            // ((ceiling(currentX) - currentX) * squareRootSampleSize) / sampleSize for first x pixel
+            // squareRootSampleSize/sampleSize for subsequent pixels
+
+        // Start from the lowest y-value this edge covers, and continue until it
+        // reaches the highest y-value the edge covers.
+        repeat while currentY < yScanBoundary
+            number currentX = (currentY - yIntercept) / slope
+            // ascending cases
+            // general note: as lines are continuous and one line begins where another ends
+            // there is currently double counting going on at the start/endpoints of lines
+            // this might partially explain some of the black between the gray values
+            // although there is definitely a problem with adding to the alpha values
+            if ascending
+                // gets the current color of the given pixel and sets color to it
+                integer colorCode = pixelMap:GetPixel(cast(integer, currentX) - xMinimum, height - cast(integer, currentY) + scanlineMinimum)
+                color:SetColorFromCode(colorCode)
+                // Instead of iterating over x until I hit the boundary, I do a simple calculate
+                // Find the difference betwen the current x and the next x and multiply
+                // it by how many columns there are.
+                number additionalValue = ((math:Floor(currentX + 1) - currentX) * squareRootSampleSize) / sampleSize
+                // adds the new coverage value to the old
+                color:SetAlpha(additionalValue + color:GetAlpha())
+                // sets the pixel to the new color
+                pixelMap:SetPixel(cast(integer, currentX) - xMinimum, height - cast(integer, currentY) + scanlineMinimum, color)
+                // move to the next x-value along the edge
+                currentX = math:Floor(currentX + 1)
+                // repeat the above process until it gets to the end of the line
+                repeat while currentX < xScanBoundary
+                    colorCode = pixelMap:GetPixel(cast(integer, currentX) - xMinimum, height - cast(integer, currentY) + scanlineMinimum)
+                    color:SetColorFromCode(colorCode)
+                    additionalValue = squareRootSampleSize/sampleSize
+                    color:SetAlpha(additionalValue + color:GetAlpha())
+                    pixelMap:SetPixel(cast(integer, currentX) - xMinimum, height - cast(integer, currentY) + scanlineMinimum, color)
+                    currentX = currentX + 1
+                end
+            else
+            // The descending case is more or less the same as the ascending case
+            // I did not test this as much, and I have not thoroughly worked through
+            // it on paper, so it is very possible that this is slightly off, but
+            // it seems close nonetheless.
+                integer colorCode = pixelMap:GetPixel(cast(integer, currentX) - xMinimum, height - cast(integer, currentY) + scanlineMinimum)
+                color:SetColorFromCode(colorCode)
+                number additionalValue = ((currentX - math:Ceiling(currentX - 1)) * squareRootSampleSize) / sampleSize
+                color:SetAlpha(additionalValue + color:GetAlpha())
+                pixelMap:SetPixel(cast(integer, currentX) - xMinimum, height - cast(integer, currentY) + scanlineMinimum, color)
+                currentX = math:Ceiling(currentX - 1)
+                repeat while xScanBoundary < currentX
+                    colorCode = pixelMap:GetPixel(cast(integer, xScanBoundary) - xMinimum, height - cast(integer, currentY) + scanlineMinimum)
+                    color:SetColorFromCode(colorCode)
+                    additionalValue = squareRootSampleSize/sampleSize
+                    color:SetAlpha(additionalValue + color:GetAlpha())
+                    pixelMap:SetPixel(cast(integer, xScanBoundary) - xMinimum, height - cast(integer, currentY) + scanlineMinimum, color)
+
+                    xScanBoundary = xScanBoundary + 1
+                end
+            end
+
+            // move on to the next y sub-pixel
+            currentY = currentY + sampleIncrement
+        end
     end
 
     /*
-        Renders the outline used for rasterizing the glyph
-
-        Can be used to debug when debug is set to true (shows differently colored outlines) or
-        to add antialiasing to the glyph
+    This action really just loops over the sub-divided Bezier curve edges
+    and sends them to the anti-alias function. This should definitely be cleaned up
+    eventually.
     */
-    private action RenderAntiAliasedOutline(integer offsetx, integer offsety, PixelMap pixelmap, BezierCurveGlyphPoints outline, integer unitsPerEM, Color color, boolean debug, Array<integer> maximums) returns PixelMap
-        integer lowerX = 0
-        integer lowerY = 0
-        integer upperX = pixelmap:GetWidth()
-        integer upperY = pixelmap:GetHeight()
-        Math math
-        offsety = math:AbsoluteValue(upperY-maximums:Get(1)-1)
+    action TestAntiAlias(PixelMap pixelMap)
+        integer i = 0
+        integer height = pixelMap:GetHeight() - 1
 
-        GlyphProfile profiles = CreateAntiAliasedGlyphProfile(outline, unitsPerEM)
-
-        HashTable<integer, CoordinateContainer> value = profiles:GetXIntercepts()
-        Iterator<integer> iterator = value:GetKeyIterator()
-        repeat while iterator:HasNext() 
-            integer key = iterator:Next()
-            if key > yMaximum 
-                yMaximum = key
-            end
-            
-            if key < yMinimum
-                yMinimum = key
-            end
-            
-            CoordinateContainer v = value:GetValue(key)
-
-            integer i = 0
-            repeat while i < v:GetSize()
-                XCoordinateList xc = v:Get(i)
+        repeat while i < edges:GetSize()
+            GlyphOutlineEdge edge = edges:Get(i)
+            if edge:GetIsBezierCurve()
                 integer j = 0
-                repeat while j < xc:GetSize()
-                    PixelIntersection currentX = xc:Get(j)
-                    if currentX:GetXPosition() > xMaximum
-                        xMaximum = currentX:GetXPosition()
-                    end
-                    if currentX:GetXPosition() < xMinimum
-                        xMinimum = currentX:GetXPosition()
-                    end
-                    if debug
-                        if xc:GetNonzero() < 0
-                            pixelmap:SetPixel(currentX:GetXPosition()+offsetx, key-offsety, color:Teal())   // teal is negative
-                        end
-                        if xc:GetNonzero() > 0 
-                            pixelmap:SetPixel(currentX:GetXPosition()+offsetx, key-offsety, color:Blue())   // blue is positive
-                        end
-                        if xc:GetNonzero() = 0
-                            pixelmap:SetPixel(currentX:GetXPosition()+offsetx, key-offsety, color:Red())    // red is 0
+                Array<GlyphOutlineEdge> splits = edge:GetSplitEdgeArray()
+
+                repeat while j < splits:GetSize()
+                    GlyphOutlineEdge split = splits:Get(j)
+                    TestCoverage(pixelMap, split)
+                    j = j + 1
+                end
+            else
+                /*
+                At some point you should consider handling straight lines here.
+                That anti-aliasing is currently done elsewhere, and I'm 99.9%
+                sure that it's working correctly. So it's not urgent, it would
+                just be nice to have it in one method so the code is cleaner.
+                */
+            end
+
+            i = i + 1
+        end
+    end
+
+    /*
+    This action finds the width and height of a glyph. Used to make the optimal
+    size pixelmap. It's 1-2 pixels taller than needed due to needing extra space
+    for the scale.
+    */
+    action FindGlyphWidthAndHeight(BezierCurveGlyphPoints glyphPoints)
+        Array<CoordinateVector> coordinates = glyphPoints:GetPoints()
+        number x = 0
+        number y = 0
+        CoordinateVector vector
+        integer i = 0
+
+        repeat while i < coordinates:GetSize()
+            vector = coordinates:Get(i)
+            x = vector:GetX()
+            y = vector:GetY()
+
+            if x < xMinimum
+                xMinimum = cast(integer, math:Floor(x))
+            end
+
+            if x > xMaximum
+                xMaximum = cast(integer, math:Ceiling(x))
+            end
+
+            if y < scanlineMinimum
+                scanlineMinimum = cast(integer, math:Floor(y))
+            end
+
+            if y > scanlineMaximum
+                scanlineMaximum = cast(integer, math:Ceiling(y))
+            end
+
+            i = i + 1
+        end
+
+        me:glyphHeight = scanlineMaximum - scanlineMinimum + 1
+        me:glyphWidth = xMaximum - xMinimum + 1
+    end
+
+    /* Debugging action:
+    This action draws the vertices of the edges onto the pixel map. Set the color
+    to something that is not the same as the fill/outline color to see them.
+    Not super useful, but you may find a need for it eventually. Note that
+    when using this on Bezier curves you will see points that are quite far from
+    the glyph; these are control points and are normal.
+    */
+    action DrawEdgeVertices(PixelMap pixelMap)
+        Color color
+        integer i = 0
+        repeat while i < edges:GetSize()
+            GlyphOutlineEdge edge = edges:Get(i)
+            pixelMap:SetPixel(cast(integer, math:Floor(edge:GetStartXPosition()))-xMinimum, pixelMap:GetHeight() - 1 - cast(integer, math:Floor(edge:GetStartYPosition()))+scanlineMinimum, color:Red())
+            pixelMap:SetPixel(cast(integer, math:Floor(edge:GetEndXPosition()))-xMinimum, pixelMap:GetHeight() - 1 - cast(integer, math:Floor(edge:GetEndYPosition()))+scanlineMinimum, color:Red())
+            
+            if edge:GetIsBezierCurve()
+                pixelMap:SetPixel(cast(integer, math:Floor(edge:GetControlXPosition()))-xMinimum, pixelMap:GetHeight() - 1 - cast(integer, math:Floor(edge:GetControlYPosition()))+scanlineMinimum, color:Blue())
+            end
+
+            i = i + 1
+        end
+    end
+
+    // This action draws a pixel scal on the pixelmap. Used for debugging so
+    // you can pinpoint where problems are happening. Draws a checkerboard pettern
+    // at the top and on the right side of the pixelmap.
+    action DrawScale(PixelMap pixelMap)
+        Color color
+        integer i = 0
+        integer height = pixelMap:GetHeight() - 1
+        integer width = pixelMap:GetWidth()
+
+        repeat while i <= scanlineMaximum
+            pixelMap:SetPixel(xMaximum-xMinimum, height - i, color:Black())
+
+            i = i + 2
+        end
+
+        i = 0
+        repeat while i <= xMaximum + 1
+            pixelMap:SetPixel(i-xMinimum, height - scanlineMaximum  + scanlineMinimum, color:Black())
+
+            i = i + 2
+        end
+    end
+    
+    /*
+    This action is the main loop for filling a glyph in. It follows the process
+    detailed in the rasterization.txt file I reference in my Font file under the
+    Resources section. They do a much better job of explaining it than I do, so
+    I will only provide a brief explanation of the process:
+    
+    - Loop from low y to max y
+    - Get all edges that begin on the current scanline
+    - Add these edges to the active edge list
+    - Remove edges from the active edge list if they are no longer covered by the scanline
+    - Fill in between edges on the current scanline
+    - Update the current x-position of all active edges
+    - Sort the active edge list in ascending x-value order
+
+    See individual action documentation for each action's specific details. This
+    is really just a routine for processing edges.
+    */
+    action DrawScanlines(PixelMap pixelMap, Color color)
+        integer scanline = 0
+        Array<GlyphOutlineEdge> newEdges
+
+        integer j = 0
+
+        repeat while scanline < scanlineBuckets:GetSize()
+            j = 0
+            newEdges = scanlineBuckets:Get(scanline)
+            // add edges to active table
+            repeat while j < newEdges:GetSize()
+                GlyphOutlineEdge edge = newEdges:Get(j)
+                InsertEdgeIntoActiveEdgeList(edge)
+                j = j + 1
+            end
+
+            // remove completed edges
+            RemoveEdgeFromActiveEdgeList(scanline+scanlineMinimum)
+
+            // draw scanlines
+            FillBetweenEdges(pixelMap, scanline+scanlineMinimum, color)
+
+            // update the x-intercepts for each edge on the next scanline
+            UpdateEdgeXPositions(scanline+scanlineMinimum+1)
+
+            // sort the edges by their x-intercept, ascending
+            SortActiveEdgeList()
+
+            scanline = scanline + 1
+        end
+    end
+    
+    /*
+    This action updates the current x-position of every edge in the active edge list
+    For straight lines, it calculates the x-intercept of the line
+    For Bezier curves, it indexes into the array of x-intercepts that have been
+    calculated when the edge was created. Again, that function is almost certainly
+    wrong and needs to be looked at.
+    */
+    action UpdateEdgeXPositions(integer scanline)
+        integer i = 0
+
+        repeat while i < activeEdgeListLeft:GetSize()
+            GlyphOutlineEdge edge = activeEdgeListLeft:Get(i)
+            edge:UpdateCurrentXPosition()
+            i = i + 1
+        end
+
+        i = 0
+
+        repeat while i < activeEdgeListRight:GetSize()
+            GlyphOutlineEdge edge = activeEdgeListRight:Get(i)
+            edge:UpdateCurrentXPosition()
+            i = i + 1
+        end
+    end
+
+    /*
+    This action sorts the active edge lists in ascending x-value order. The custom
+    sort is implemented in the GlyphOutlineEdge class, but has been tested extensively
+    and works properly.
+    */
+    action SortActiveEdgeList()
+        activeEdgeListLeft:Sort()  
+        activeEdgeListRight:Sort()
+    end
+
+    /*
+    This is the straight line anti-alias action. It uses the same method of
+    super sampling used by the Bezier anti-alias action, although this is much
+    easier to implement and understand. Reference TestCoverage or Google super
+    sampling to understand this process.
+
+    Again, at some point it would be nice to consolidate the two methods, if possible.
+    */
+    action AntiAliasLineSegment(PixelMap pixelMap, GlyphOutlineEdge edge, integer yScanline)
+        Color color
+        number yMin = edge:GetYMinimum()
+        number yMax = edge:GetYMaximum()
+        number yScan = yScanline
+
+        integer subPixelsCovered = 0
+        number sampleSize = 256.0
+        number sampleIncrement = 1 / math:SquareRoot(sampleSize)
+
+        number xStart = math:Floor(edge:GetCurrentXPosition())
+        number xIntercept = edge:GetCurrentXPosition()
+
+        repeat while yScan < yScanline + 1
+            if yScan >= yMin and yScan <= yMax
+                number xScan = xStart
+                repeat while xScan < xStart + 1
+                    if edge:GetIsAscending()
+                        if xScan >= xIntercept
+                            subPixelsCovered = subPixelsCovered + 1
                         end
                     else
-                        Color individualColor 
-                        individualColor:CopyColor(color)
-                        individualColor:SetAlpha(currentX:GetIntensity())
-                        pixelmap:SetPixel(xc:Get(j):GetXPosition()+offsetx, key-offsety, individualColor)  
-                    end
-                    j = j +1
+                        if xScan <= xIntercept
+                            subPixelsCovered = subPixelsCovered + 1
+                        end                        
+                    end   
+                xScan = xScan + sampleIncrement
                 end
-                i = i + 1
-            end
-
+            end    
+            yScan = yScan + sampleIncrement
         end
-        return pixelmap
+        
+        color:SetColor(0, 0, 0, subPixelsCovered/sampleSize)
+        pixelMap:SetPixel(cast(integer, xStart) - xMinimum, pixelMap:GetHeight() - 1 - yScanline + scanlineMinimum, color)
     end
 
-    /* 
-        Renders actual outline as contained in font file
+    /*
+    This action is a real monster, and I would not be at all surprised if this
+    needs a ton of work to work correctly with the Bezier curve anti-aliasing.
+    I'll do my best to explain what is going on here. This may need to be
+    entirely rewritten/figured out, but I still think the x-intercept calculations
+    should be the top priority, since without those being correct nothing else is
+    really going to work.
+
+    Anyway, this action draws a line from one ascending edge to one descending edge,
+    filling the glyph in. In my time working on this, this proved to have the most
+    edge cases and be the most difficult to figure things out on. It's surprising
+    where issues can pop up.
+
+    The idea is simple. Take the left-most ascending edge (lowest x-value), find
+    the left-most descending edge (lowest x-value) and draw a line betweem them.
+    Apparently, the lists are always supposed to be balanced by some geometric
+    property (you read about this in the rasterization.txt file) but I never got
+    this to happen. Again, I think this is realted to some weird rounding problem,
+    or perhaps removing/adding edges too early. If the lists were balanced, then
+    you would simply iterate over both lists, pair the edges at the same index
+    value, and call it a day. If you can figure out how to balance the lists,
+    that might simplify this greatly.
+
+    As it stands now, this is extremely convoluted and has a bunch of stuff in it
+    to handle all kinds of edge cases and oddities. Really take some time to
+    understand what is happening here.
     */
-    private action RenderGlyphOutline(integer offsetx, integer offsety,PixelMap pixelmap, BezierCurveGlyphPoints outline, TrueTypeFileInformation file) returns PixelMap
-        
-        Array<CoordinateVector> vectorArray = outline:GetPoints()
-        
-        FontBoundingBox boundingBox = outline:GetBoundingBox()
-        Color color
+    action FillBetweenEdges(PixelMap pixelMap, integer scanline, Color color)
+        // iterator for the left list
+        integer i = 0
+        // used to iterate over the right list
+        integer nextDescendingEdgeIndex = 0
+        integer height = pixelMap:GetHeight() - 1
 
-        number yCoord = -1
-        number xCoord = -1
+        // iterate through all the items in the active egde list
+        repeat while i < activeEdgeListLeft:GetSize()
+            GlyphOutlineEdge edge1 = activeEdgeListLeft:Get(i)
 
-        Array<integer> endpoints = outline:GetContourEndpoints()
-        integer contour = 0
-        repeat while contour < endpoints:GetSize()
-            integer endpoint = endpoints:Get(contour)
-            integer lastEndpoint = 0
-            integer i = 0
-            if contour > 0
-                lastEndpoint = endpoints:Get(contour-1)
-                i = 0 + lastEndpoint + 1
-            end
-            
+            // grab a descending edge if one is available
+            if nextDescendingEdgeIndex < activeEdgeListRight:GetSize()
+                GlyphOutlineEdge edge2 = activeEdgeListRight:Get(nextDescendingEdgeIndex)
+                // these will be used to describe certain types of what I call joints
+                // which are special cases of the two edges being joined by a common vertex
+                boolean joint1 = false
+                boolean joint2 = false
 
-            repeat while i <= endpoint
-                CoordinateVector tempVec = vectorArray:Get(i)
-
-                xCoord = CalculateCoordinate (tempVec:GetX(), pixelSize, file:GetUnitsPerEm(), 0) +offsetx
-                yCoord = CalculateCoordinate (tempVec:GetY(), pixelSize, file:GetUnitsPerEm(), maximumSizeYAxis) -offsety
-
-                CoordinateVector nextPoint = NextPoint(i, contour, vectorArray, endpoints)
-                number xNext = CalculateCoordinate (nextPoint:GetX(), pixelSize, file:GetUnitsPerEm(), 0) +offsetx
-                number yNext = CalculateCoordinate (nextPoint:GetY(), pixelSize, file:GetUnitsPerEm(), maximumSizeYAxis) -offsety
-                if not tempVec:IsOnCurve() and nextPoint:IsOnCurve()
-                    // quadratic curve
-                    CoordinateVector lastPoint = PreviousPoint(vectorArray, i)
-
-                    number xPast = CalculateCoordinate (lastPoint:GetX(), pixelSize, file:GetUnitsPerEm(), 0) +offsetx
-                    number yPast = CalculateCoordinate (lastPoint:GetY(), pixelSize, file:GetUnitsPerEm(), maximumSizeYAxis) -offsety
-                    // xPast/yPast are start points of the curve, xCoord/yCoord are control points of the curve, xNext/yNext are end points of the curve
-                    DrawFlatCurve(pixelmap, xPast, yPast, xCoord, yCoord, xNext, yNext)
-
-
-                elseif not tempVec:IsOnCurve() and not nextPoint:IsOnCurve()
-                    alert( "This shouldn't be happening, two points not on curve")
-                    // this shouldn't happen because this should be handled while reading the data from file (fill in one point)
-                elseif tempVec:IsOnCurve() and nextPoint:IsOnCurve()
-                    // straight line case
-                    //pixelmap:DrawLine(xCoord, yCoord, xNext, yNext, color:Yellow())            
+                /*
+                Two edges moving left to right, where the descending edge is to
+                the left of the ascending edge and the ascending edge start y falls on
+                the current scanline.
+                */
+                if edge2:GetEndXPosition() = edge1:GetStartXPosition() and edge2:GetEndYPosition() = edge1:GetStartYPosition() and (math:Floor(edge1:GetStartYPosition()) = scanline or math:Ceiling(edge1:GetStartYPosition()) = scanline)
+                    joint1 = true
                 end
 
-                i = i + 1
-            end
+                /*
+                Two edges moving left to right, where the descending edge is to
+                the right of the ascending edge and the ascending edge end y falls
+                on the current scanline.
+                */
+                if edge2:GetStartXPosition() = edge1:GetEndXPosition() and edge2:GetStartYPosition() = edge1:GetEndYPosition() and (math:Floor(edge1:GetEndYPosition()) = scanline or math:Ceiling(edge1:GetEndYPosition()) = scanline)
+                    joint2 = true
+                end
 
-            contour = contour + 1
-        end
+                /*
+                If we have an opening edge, it must have a closing edge. For an edge
+                to be a closing edge, it must have an x value >= the opening x
+                value. Special care needs to be taken when dealing with "joints"
 
-        return pixelmap
-    end
+                The following bits of code are methods to get the correct closing
+                edge for an opening edge.
+                */
 
-    /*
-        called by RenderGlyphOutline (non-anti-aliasing) action to calculate 
-        <x, y> coordinate with respect to screen size 
-    */
-    private action CalculateCoordinate(number gridCoordinate, integer pixelSize, integer emSize, integer screenSize) returns number 
-        if screenSize = 0
-           return gridCoordinate * pixelSize / emSize
-        end
-        return screenSize - gridCoordinate * pixelSize / emSize
-    end
+                /*
+                While the closing edge is to the left of the opening edge, and there
+                are more closing edges, and we are not dealing with a joint,
+                grab the next closing edge.
+                */  
+                repeat while edge2:GetCurrentXPosition() < edge1:GetCurrentXPosition() and (nextDescendingEdgeIndex+1) < activeEdgeListRight:GetSize() and not joint1 and not joint2
+                    nextDescendingEdgeIndex = nextDescendingEdgeIndex + 1
+                    edge2 = activeEdgeListRight:Get(nextDescendingEdgeIndex)
+                end
 
-    /*
-        returns next point on contour relative to last
-    */
-    private action NextPoint(integer i, integer contour, Array<CoordinateVector> vectorArray, Array<integer> endpoints) returns CoordinateVector        
-        if endpoints:Get(contour) = i and contour > 0   
-            integer value = 0
-            value = endpoints:Get(contour-1)
-            value = value + 1
-            return vectorArray:Get(value)
-        elseif endpoints:Get(contour) = i and contour = 0
-            return vectorArray:Get(0)
-        end
-        return vectorArray:Get(i+1)
-    end
-    
-    /* This may be the new function to implement de Casteljau's algorithm
-    General idea:
-        create an array
-        get the midpoints of the line
-        check if the line is curved enough
-        if it is, add the points to the array
-            otherwise, recursively subdivide the line until it is curved enough
-        TODO: Seems like this may be recursing too much in some cases. Set limit?    
-    */
-    private action FlatCurveAlgorithm(number startX, number startY, number controlX, number controlY, number endX, number endY, Array<CoordinateVector> vals, integer recursionLimit)
-        Math absoluteValue
+                /*
+                Now that we have a closing edge, we have to recheck if this edge
+                forms a joint or not. These are the same checks as performed above.
+                */
+                if edge2:GetEndXPosition() = edge1:GetStartXPosition() and edge2:GetEndYPosition() = edge1:GetStartYPosition() and (math:Floor(edge1:GetStartYPosition()) = scanline or math:Ceiling(edge1:GetStartYPosition()) = scanline)
+                    joint1 = true
+                end
 
-        if(recursionLimit < 50)
-            // Midpoints of the lines between start/end and control points
-            number xStartToxControlMid = (startX + controlX) / 2
-            number yStartToyControlMid = (startY + controlY) / 2
-            number xControlToxEndMid = (controlX + endX) / 2
-            number yControlToyEndMid = (controlY + endY) / 2
-            number xMidToxMid = (xStartToxControlMid + xControlToxEndMid) /2
-            number yMidToyMid = (yStartToyControlMid + yControlToyEndMid) /2
+                if edge2:GetStartXPosition() = edge1:GetEndXPosition() and edge2:GetStartYPosition() = edge1:GetEndYPosition() and (math:Floor(edge1:GetEndYPosition()) = scanline or math:Ceiling(edge1:GetEndYPosition()) = scanline)
+                    joint2 = true
+                end
 
-            number dx = endX-startX
-            number dy = endY-startY
-            number d = absoluteValue:AbsoluteValue(((controlX-endX)*dy-(controlY-endY)*dx))
+                /*
+                If we have joints, we need to handle them in a special manner.
 
-            // need to add end points to the array
-            if(d*d <= (dx*dx + dy*dy))
-                CoordinateVector vector
-                vector:SetX(cast(integer, endX))
-                vector:SetY(cast(integer, endY))
-                vals:Add(vector)
-            else
-                FlatCurveAlgorithm(startX, startY, xStartToxControlMid, yStartToyControlMid, xMidToxMid, yMidToyMid, vals, recursionLimit + 1)
-                FlatCurveAlgorithm(xMidToxMid, yMidToyMid, xControlToxEndMid, yControlToyEndMid, endX, endY, vals, recursionLimit + 1)
-            end
-        end
-    end
+                For the first type of joint, the closing edge is always going to
+                be to the left of the opening edge, so just grab the first
+                closing edge to the right of the opening edge. Since joints can
+                only happen once, we do not have to recheck the joint status of
+                the new closing edge.
 
-    /*
-    This action gets the lines to draw to fill in the glyph. Each y-axis line
-    on the monitor scans horizontally and finds where it intersects with the
-    outline, turning the line on/off based on the outline.
-    */
-    private action GetLinesToDraw(BezierCurveGlyphPoints outline, integer unitsPerEM) returns Array<Line>
-        GlyphProfile profile = CreateAntiAliasedGlyphProfile(outline, unitsPerEM)
-
-        Array<Line> linesToDraw
-
-        integer ypixel = 0
-        Iterator<integer> ite = profile:GetKeyIterator()
-        repeat while ite:HasNext()
-            ypixel = ite:Next()
-
-            if profile:HasY(ypixel)
-                CoordinateContainer matches = profile:GetXInterceptAtY(ypixel)
-                integer nonzerorule = 0
-                integer i = 0
-                repeat while i < matches:GetSize()
-
-                    XCoordinateList current = matches:Get(i)
-                    XCoordinateList next
-                   
-                    if current:GetNonzero() = 0
-                        Line l
-                        l:SetPoint1(current:Get(0):GetXPosition(), ypixel)    // REMOVE THE +1 AND -1 FROM THE X COORDINATES, POSSIBLY (add them back?)
-                        l:SetPoint2(current:GetLast():GetXPosition(), ypixel)
-                        linesToDraw:Add(l)
-                    end
-
-                    nonzerorule = nonzerorule + current:GetNonzero()
-
-                    if not (nonzerorule = 0)
-                        Line l
-
-                        l:SetPoint1(current:Get(0):GetXPosition()+1, ypixel) // first in list because left side
-                        if not (matches:GetSize() <= i + 1)
-                            next = matches:Get(i+1)
-
-                            l:SetPoint2(next:GetLast():GetXPosition()-1, ypixel) //last in list because right side
-                            linesToDraw:Add(l)
+                For the second type of joint, the closing edge is always going
+                to be to the right of the opening edge, so you may think we can
+                just use it to close. I forget why now, but I found that in the
+                case where the closing edge moves right to left I would get
+                drop outs. So, if the closing edge is moving right to left, it
+                grabs the next edge that is to the right of the opening edge.
+                */
+                if joint1
+                    if edge1:GetMovingLeftToRight() or edge2:GetMovingLeftToRight() and (nextDescendingEdgeIndex+1) < activeEdgeListRight:GetSize()
+                        edge2 = activeEdgeListRight:Get(nextDescendingEdgeIndex+1)
+                        repeat while edge2:GetCurrentXPosition() < edge1:GetCurrentXPosition() and (nextDescendingEdgeIndex+1) < activeEdgeListRight:GetSize()
+                            nextDescendingEdgeIndex = nextDescendingEdgeIndex + 1
+                            edge2 = activeEdgeListRight:Get(nextDescendingEdgeIndex)
                         end
+                    end
+                end
+
+                if joint2
+                    if not edge2:GetMovingLeftToRight() and (nextDescendingEdgeIndex+1) < activeEdgeListRight:GetSize()
+                        edge2 = activeEdgeListRight:Get(nextDescendingEdgeIndex+1)  
+                        repeat while edge2:GetCurrentXPosition() < edge1:GetCurrentXPosition() and (nextDescendingEdgeIndex+1) < activeEdgeListRight:GetSize()
+                            nextDescendingEdgeIndex = nextDescendingEdgeIndex + 1
+                            edge2 = activeEdgeListRight:Get(nextDescendingEdgeIndex)
+                        end
+                    end
+                end
+                
+                integer startX = 0
+                integer endX = 0
+
+                /*
+                Now that we have an opening and closing edge pair, we just need
+                to draw a line between the two points. We start drawing 1 x value
+                to the right of the opening edge, so as to not overwrite the
+                antialiased edge, and we stop 1 x value to the left of the closing
+                edge for the same reason. Again, there may be a rounding issue here.
+
+                Straight line anti-aliasing calls are done here, while Bezier curves
+                have already been anti-aliased and placed on the pixelmap.
+                */ 
+                if edge1:GetIsBezierCurve()
+                    startX = cast(integer, math:Floor(edge1:GetCurrentXPosition())) + 1
+                else    // line segment
+                    startX = cast(integer, math:Floor(edge1:GetCurrentXPosition())) + 1
+                    AntiAliasLineSegment(pixelMap, edge1, scanline)
+                end
+
+                if edge2:GetIsBezierCurve()
+                    endX = cast(integer, math:Floor(edge2:GetCurrentXPosition())) - 1
+                else    // line segment
+                    endX = cast(integer, math:Floor(edge2:GetCurrentXPosition())) - 1
+                    AntiAliasLineSegment(pixelMap, edge2, scanline)
+                end
+
+                /*
+                This may seem like a weird check after all that work to find a
+                matching set of edges. But at small font sizes, it is possible
+                to get a pair of edges that match and have no pixels between them,
+                so there is nothing to fill in. Basically, if there is at least 1
+                pixel between the ascending edge and the descending edge, fill it in.
+                */
+                if startX <= endX
+                    pixelMap:DrawLine(startX - xMinimum, height - scanline + scanlineMinimum, endX - xMinimum, height - scanline + scanlineMinimum, color)
+                end
+            end
+            /*
+            Since we iterate through the list of closing edges every time we
+            are looking at en opening edge, we reset that iterator to 0.
+            */
+            nextDescendingEdgeIndex = 0
+            i = i + 1    
+        end
+    end
+
+    /*
+    This action scans the active edge lists, marks edges that are to be removed,
+    and then removes the necessary edges from the lists. Honestly, the way I
+    implemented this is terrible and it should be rewritten. But the idea is,
+    if the current scanline is greater than the maximum y value for an edge,
+    then that edge is finished and should be removed.
+    */
+    action RemoveEdgeFromActiveEdgeList(integer scanline)
+        integer i = 0
+        Array<integer> positionsToRemoveLeft
+        Array<integer> positionsToRemoveRight
+        repeat while i < activeEdgeListLeft:GetSize()
+            GlyphOutlineEdge edge = activeEdgeListLeft:Get(i)
+            if edge:GetYMaximum() = scanline
+                positionsToRemoveLeft:Add(i)
+            end
+            i = i + 1
+        end
+
+        i = 0
+        repeat while i < activeEdgeListRight:GetSize()
+            GlyphOutlineEdge edge = activeEdgeListRight:Get(i)
+            if edge:GetYMaximum() = scanline
+                positionsToRemoveRight:Add(i)
+            end
+            i = i + 1
+        end
+
+        integer totalRemoved = 0
+        
+        i = 0
+        repeat while i < positionsToRemoveLeft:GetSize()
+            activeEdgeListLeft:RemoveAt(positionsToRemoveLeft:Get(i)-totalRemoved)
+            totalRemoved = totalRemoved + 1
+            i = i + 1
+        end
+
+        i = 0
+        totalRemoved = 0
+        repeat while i < positionsToRemoveRight:GetSize()
+            activeEdgeListRight:RemoveAt(positionsToRemoveRight:Get(i)-totalRemoved)
+            totalRemoved = totalRemoved + 1
+            i = i + 1
+        end
+    end
+
+    /*
+    This action adds edges to one of the active edge lists. Ascending edges go
+    into the left list, and descending edges go into the right list. When we insert,
+    since we use a linked list, we iterate through the list until we find the
+    appropriate spot to keep the list in ascending order.
+    */
+    action InsertEdgeIntoActiveEdgeList(GlyphOutlineEdge edge)
+        boolean inserted = false
+        if edge:GetIsAscending()    // add it to left list
+            if activeEdgeListLeft:GetSize() = 0 // new list, just add the first item
+                activeEdgeListLeft:AddToFront(edge)
+            else    // already contains items, sort by start x value
+                number x = edge:GetCurrentXPosition()
+                integer i = 0
+                repeat while i < activeEdgeListLeft:GetSize()
+                    GlyphOutlineEdge edge2 = activeEdgeListLeft:Get(i)
+                    if edge2:GetCurrentXPosition() >= x
+                        activeEdgeListLeft:Add(i, edge)
+                        i = activeEdgeListLeft:GetSize()
+                        inserted = true
                     end
 
                     i = i + 1
                 end
-            end
-        end
-        return linesToDraw
-    end
-
-    /*
-    This action creates the anti-aliased outline for the glyph. Not currently
-    anti-aliasing.
-    */
-    private action CreateAntiAliasedGlyphProfile(BezierCurveGlyphPoints outline, integer unitsPerEM) returns GlyphProfile
-        GlyphProfile profile
-        Array<Line> lines
-
-        if outline:GetCompoundGlyph()
-            lines = FlattenCompoundOutline(outline)
-        else
-            lines = FlattenOutline(outline) // this currently has some erroneous lines, such as from (0, 0) to (0, 0). Removing doesn't seem to fix anything, though.
-        end
-        integer oldNonZero = 1
-
-        integer i = 0
-        repeat while i < lines:GetSize() and lines:GetSize() < 10000
-            Line line = lines:Get(i)
-
-            //HashTable<integer, XCoordinateList> xintercepts = line:BresenhamLineAlgorithm(line:GetX1(), line:GetY1(), line:GetX2(), line:GetY2())
-            HashTable<integer, XCoordinateList> xintercepts = line:GetXInterceptsNumber(pixelSize, pixelSize, unitsPerEM, maximumSizeYAxis, oldNonZero)   
-            Iterator<integer> keyiterator = xintercepts:GetKeyIterator()
-            repeat while keyiterator:HasNext()
-                integer key = keyiterator:Next()
-                XCoordinateList value = xintercepts:GetValue(key)
-                boolean test = profile:AddCoordinatesAt(key, value)
-                oldNonZero = xintercepts:GetValue(key):GetNonzero()
-            end
-
-            i = i + 1
-        end
-        return profile
-    end
-
-    /*
-    This action takes the glyph outline for compound glyphs and "flattens" it to make
-    drawing easier and more efficient.
-    */
-    private action FlattenCompoundOutline (BezierCurveGlyphPoints outline) returns Array<Line>
-        Array<Line> lines
-        integer i = 0
-        Array<Array<integer>> compoundEndpoints = outline:GetCompoundEndpoints()
-        Array<Array<CoordinateVector>> compoundPoints = outline:GetCompoundPoints()
-
-        repeat while i < compoundEndpoints:GetSize()
-            Array<CoordinateVector> vectorArray = compoundPoints:Get(i)
-
-            Array<integer> endpoints = compoundEndpoints:Get(i)
-            integer contour = 0
-            repeat while contour < endpoints:GetSize()
-                integer endpoint = endpoints:Get(contour)
-                integer lastEndpoint = 0
-                integer j = 0
-                if contour > 0
-                    lastEndpoint = endpoints:Get(contour-1)
-                    j = 0 + lastEndpoint + 1
+                if not inserted
+                    activeEdgeListLeft:AddToEnd(edge)
                 end
-
-                repeat while j <= endpoint
-                    CoordinateVector tempVec = vectorArray:Get(j)
-
-                    xCoord = tempVec:GetX()
-                    yCoord = tempVec:GetY()
-
-                    CoordinateVector nextPoint = NextPoint(j, contour, vectorArray, endpoints)
-                    xNext = nextPoint:GetX()
-                    yNext = nextPoint:GetY()
-
-                    if not tempVec:IsOnCurve() and nextPoint:IsOnCurve()
-                        // quadratic curve
-                        CoordinateVector lastPoint = PreviousPoint(vectorArray, j)
-
-                        number xPast = lastPoint:GetX()
-                        number yPast = lastPoint:GetY()
-                        AddAll(lines, GetFlatCurve(xPast, yPast, xCoord, yCoord, xNext, yNext))
-
-                    elseif not tempVec:IsOnCurve() and not nextPoint:IsOnCurve()
-                        // this shouldn't happen because this should be handled while reading the data from file (fill in one point)
-                    elseif tempVec:IsOnCurve() and nextPoint:IsOnCurve()
-                        // straight line case
-                        Line l
-                        l:SetPoint1(xCoord, yCoord)
-                        l:SetPoint2(xNext, yNext)
-                        lines:Add(l)
+            end
+        else    // add to right list
+            if activeEdgeListRight:GetSize() = 0 // new list, just add the first item
+                activeEdgeListRight:AddToFront(edge)
+            else    // already contains items, sort by start x value
+                number x = edge:GetCurrentXPosition()
+                integer i = 0
+                repeat while i < activeEdgeListRight:GetSize()
+                    GlyphOutlineEdge edge2 = activeEdgeListRight:Get(i)
+                    if edge2:GetCurrentXPosition() >= x
+                        activeEdgeListRight:Add(i, edge)
+                        i = activeEdgeListRight:GetSize()
+                        inserted = true
                     end
-                    j = j + 1
+
+                    i = i + 1
                 end
-                contour = contour + 1
-            end            
+                if not inserted
+                    activeEdgeListRight:AddToEnd(edge)
+                end
+            end
+        end
+    end
+
+    /*
+    This action places an array of edges into a bucket. The buckets correspond
+    to a y-value of the glyph, ranging from minY to maxY. Arrays of edges are
+    placed into the bucket that matches that edge's lowest y-value. So if an edge
+    has a yMin of 0, it goes into bucket 0.
+
+    This action should be working correctly.
+    */
+    action PlaceEdgesIntoScanlineBuckets()
+        integer totalScanlines = scanlineMaximum - scanlineMinimum
+        integer i = 0
+        
+        // initialize buckets, we want one for each y-value of the glyph
+        repeat while i <= totalScanlines
+            Array<GlyphOutlineEdge> newEdges
+            scanlineBuckets:Add(newEdges)
+
             i = i + 1
         end
 
-        return lines
-    end
-
-    /*
-    This action takes the glyph outline and "flattens" it to make drawing easier
-    and more efficient.
-    */
-    private action FlattenOutline (BezierCurveGlyphPoints outline) returns Array<Line>
-        Array<Line> lines
+        i = 0
         
-        Array<CoordinateVector> vectorArray = outline:GetPoints()
-
-        Array<integer> endpoints = outline:GetContourEndpoints()
-        integer contour = 0
-        repeat while contour < endpoints:GetSize()
-            integer endpoint = endpoints:Get(contour)
-            integer lastEndpoint = 0
-            integer i = 0
-            if contour > 0
-                lastEndpoint = endpoints:Get(contour-1)
-                i = 0 + lastEndpoint + 1
-            end
-            
-            repeat while i <= endpoint
-                CoordinateVector tempVec = vectorArray:Get(i)
-
-                xCoord = tempVec:GetX()
-                yCoord = tempVec:GetY()
-
-                CoordinateVector nextPoint = NextPoint(i, contour, vectorArray, endpoints)
-                xNext = nextPoint:GetX()
-                yNext = nextPoint:GetY()
-
-                if not tempVec:IsOnCurve() and nextPoint:IsOnCurve()
-                    // quadratic curve
-                    CoordinateVector lastPoint = PreviousPoint(vectorArray, i)
-
-                    number xPast = lastPoint:GetX()
-                    number yPast = lastPoint:GetY()
-                    AddAll(lines, GetFlatCurve(xPast, yPast, xCoord, yCoord, xNext, yNext))
-
-                elseif not tempVec:IsOnCurve() and not nextPoint:IsOnCurve()
-                    // this shouldn't happen because this should be handled while reading the data from file (fill in one point)
-                elseif tempVec:IsOnCurve() and nextPoint:IsOnCurve()
-                    // straight line case
-                    Line l
-                    l:SetPoint1(xCoord, yCoord)
-                    l:SetPoint2(xNext, yNext)
-                    lines:Add(l)
+        repeat while i < scanlineBuckets:GetSize()
+            Array<GlyphOutlineEdge> newEdges = scanlineBuckets:Get(i)
+            integer j = 0
+            // iterate through the edges, and add them to their appropriate buckets
+            // as explained above. Each edge goes in exactly one bucket
+            // we do not process horizontal edges
+            repeat while j < edges:GetSize()
+                GlyphOutlineEdge edge = edges:Get(j)
+                if edge:GetYMinimum() = i + scanlineMinimum and not edge:GetIsHorizontal()
+                    newEdges:Add(edge)
                 end
-                i = i + 1
-            end
-            contour = contour + 1
+
+                j = j + 1
+            end        
+
+            i = i + 1
         end
-        return lines
+
     end
-    
+
     /*
-    Helper function to add all the lines from one array to another.
+    This action takes the points from a BezierCurveGlyphPoints object and turns
+    them into edges, both straight lines and Bezier curves. This has been tested
+    a lot and should be correct, so I will not go into a lot of details since
+    it's not strictly related to anti-aliasing. Basically, it looks through
+    the points, and when it finds two consecutive on-curve points, it creates
+    a normal edge. When it finds an on-curve, off-curve, on-curve sequence of
+    points, it creates a Bezier curve edge. There are some weird situational cases
+    covered here, such as a closing loop on an O, or moving from the outer ring
+    to the inner ring of an O, but they are minor implementation details.
+
+    Created edges are added to the global edge list.
+
+    This action also updates the extrema for the glyph. Seemed like a convenient
+    place to do that.
+
+    If you get totally stuck and you think the edges are being made incorrectly,
+    you are going to want to read the BezierCurveGlyphPoints documentation, specifically
+    what the coordinates and endpoints represent. Then look at the edge creation
+    actions in the GlyphOutlineEdge class, and work things out on paper. It is
+    possible there are still edge case errors here, but I would be surprised.
+    Best to focus your efforts elsewhere, and only look here as a last resort or
+    if you're sure the edges are wrong.
     */
-    private action AddAll(Array<Line> original, Array<Line> toAdd)
+    action CreateGlyphOutlineEdges(Array<CoordinateVector> coordinates, Array<integer> endpoints)
+        CoordinateVector startPoint
+        CoordinateVector nextPoint
+        CoordinateVector controlPoint
+        integer endpointIndex = 1
+        integer endpoint = endpoints:Get(0)
+        integer contourStartIndex = 0
         integer i = 0
-        repeat while i < toAdd:GetSize() 
-            original:Add(toAdd:Get(i))
-            i = i + 1 
-        end
-    end
+        integer edgeNumber = 1
 
-    /*
-    This action takes a curve and flattens it, breaking it into several smaller
-    line segments if necessary.
-    */
-    private action GetFlatCurve(number x1, number y1, number x2, number y2, number x3, number y3) returns Array<Line>
-        Array<CoordinateVector> vals
-        FlatCurveAlgorithm(x1, y1, x2, y2, x3, y3, vals, 0)
-        Array<Line> lines
-    
-        Line l0
-        l0:SetPoint1(x1,y1)
-        l0:SetPoint2(vals:Get(0):GetX(), vals:Get(0):GetY())
-        lines:Add(l0)
+        repeat while i < coordinates:GetSize()
+            GlyphOutlineEdge edge
+            startPoint = coordinates:Get(i)
 
-        integer i = 0
-        repeat while i < vals:GetSize()
-            number xCoord = vals:Get(i):GetX()
-            number yCoord = vals:Get(i):GetY()
-            
-            number xNext = -1
-            number yNext = -1
+            if startPoint:IsOnCurve()   // only add edges between on curve points
+                if i = endpoint  // need to get the first point that started this contour
+                    nextPoint = coordinates:Get(contourStartIndex)
+                    if endpointIndex < endpoints:GetSize()
+                        endpoint = endpoints:Get(endpointIndex)
+                        endpointIndex = endpointIndex + 1
+                    end
+                    contourStartIndex = i + 1
 
-            if i < vals:GetSize() - 1
-                CoordinateVector next = vals:Get(i+1)
-                xNext = next:GetX()
-                yNext = next:GetY()
-            else 
-                xNext = x3
-                yNext = y3
+                else    // next point is just the next point in the list
+                    nextPoint = coordinates:Get(i+1)
+                    if not nextPoint:IsOnCurve()    // next point is a control point, get the next point
+                        controlPoint = nextPoint
+                        edge:SetIsBezierCurve(true)
+                        if (i+1) not= endpoint    // not at the end of the outline
+                            nextPoint = coordinates:Get(i+2)
+                        else    // i+1 is endpoint, need to get the point that starts the contour
+                            nextPoint = coordinates:Get(contourStartIndex)
+                            if endpointIndex < endpoints:GetSize()
+                                endpoint = endpoints:Get(endpointIndex)
+                                endpointIndex = endpointIndex + 1
+                            end
+                        contourStartIndex = i + 2    
+                        end
+                    end
+                end
+                
+                if edge:GetIsBezierCurve()
+                    edge:CreateBezierEdge(startPoint, nextPoint, controlPoint, edgeNumber)
+                    edgeNumber = edgeNumber + 1
+                else
+                    edge:CreateEdge(startPoint, nextPoint, edgeNumber)
+                    edgeNumber = edgeNumber + 1
+                end
+
+                if edge:GetYMinimum() < scanlineMinimum
+                    scanlineMinimum = edge:GetYMinimum()
+                end
+
+                if edge:GetYMaximum() > scanlineMaximum
+                    scanlineMaximum = edge:GetYMaximum()
+                end
+
+                if edge:GetStartXPosition() < xMinimum
+                    xMinimum = cast(integer, math:Ceiling(edge:GetStartXPosition()))
+                end
+//made change from:
+//                if edge:GetStartXPosition() > xMaximum 
+//                    xMaximum = cast(integer, math:Ceiling(edge:GetStartXPosition()))
+//                end
+
+                if edge:GetEndXPosition() > xMaximum
+                    xMaximum = cast(integer, math:Ceiling(edge:GetEndXPosition()))
+                end
+
+                edges:Add(edge)
             end
-
-            Line l
-            l:SetPoint1(xCoord,yCoord)
-            l:SetPoint2(xNext, yNext)
-            lines:Add(l)
-        
-            i = i + 1 
-        end 
-        return lines
-    end
-
-    /*
-    This action draws the flattened curves to the pixelmap.
-    */
-    private action DrawFlatCurve(PixelMap pixelmap, number x1, number y1, number x2, number y2, number x3, number y3)
-        Array<CoordinateVector> vals
-        FlatCurveAlgorithm(x1, y1, x2, y2, x3, y3, vals, 0)
-        Color color
-        //pixelmap:DrawLine(x1, y1, vals:Get(0):GetX(), vals:Get(0):GetY(), color:Yellow())
-
-        integer i = 0
-        repeat while i < vals:GetSize()
-            number xCoord = vals:Get(i):GetX()
-            number yCoord = vals:Get(i):GetY()
-            
-            number xNext = -1
-            number yNext = -1
-
-            if i < vals:GetSize() - 1
-                CoordinateVector next = vals:Get(i+1)
-                xNext = next:GetX()
-                yNext = next:GetY()
-            else 
-                xNext = x3
-                yNext = y3
-            end
-
-            //pixelmap:DrawLine(xCoord, yCoord, xNext, yNext, color:Yellow())
-        
-            i = i + 1 
+            i = i + 1
         end
+    integer j = 0
+    repeat while j < edges:GetSize()
+        GlyphOutlineEdge newEdge = edges:Get(j)
+        if newEdge:GetIsBezierCurve()
+            newEdge:FindXIntercepts()
+        end
+        j = j + 1
+    end
     end
     
-    /*
-    This action takes Bezier control points and calculates points along the curve
-    based on them.
-    */
-    private action BezierCoordinate(number t, integer c1, integer c2, integer c3) returns number
-        number tSq = t * t
-        number mt = 1 - t
-        number mtSq = mt * mt
-        return c1 * mtSq + c2 * 2 * mt * t + c3 * tSq
-    end
 
-    /*
-    This action returns the previous point on the curve.
-    */  
-    private action PreviousPoint(Array<CoordinateVector> array, integer i) returns CoordinateVector
-        if i = 0
-            return array:Get(array:GetSize()-1)
-        end
+action GetGlyphWidth() returns integer
+    return me:glyphWidth
+end
 
-        return array:Get(i-1)
-    end
+action GetGlyphHeight() returns integer
+    return me:glyphHeight
+end
 
-    /*
-    This action returns the next point on the curve.
-    */
-    private action NextPoint (Array<CoordinateVector> array, integer i) returns CoordinateVector
-        if i = array:GetSize()-1
-            return array:Get(0)
-        end
+action GetScanlineMaximum() returns integer
+    return me:scanlineMaximum
+end
 
-        return array:Get(i+1)
-    end
+action EmptyBuckets()
+    edges:Empty()
+    activeEdgeListLeft:Empty()
+    activeEdgeListRight:Empty()
+    scanlineBuckets:Empty()
+end
 
-    /*
-    This action initializes the pixel map used for the glyph.
-    */  
-    private action SetupPixelMap(number width, number height, Format format) returns PixelMap
-        Color color
-        PixelMap map
+action DrawGlyph(BezierCurveGlyphPoints outline, integer xOffset, integer yOffset, Color color, TrueTypeFileInformation information) returns FontDrawable
+    FontBoundingBox box = outline:GetBoundingBox() 
+    integer highPoint = CalculateScaledCoordinate(box:GetYMaximum(), pixelSize, information:GetUnitsPerEm()) + 1
+    integer lowPoint = CalculateScaledCoordinate(box:GetYMinimum(), pixelSize, information:GetUnitsPerEm()) - 1
+    output "Inside Rasterizer, outline has points: "
+    outline:DisplayCoordinates()
 
-        map:SetColor(color:Black())
-        map:CreatePixelMap(cast(integer, width), cast(integer, height), format)
-        //map:FillRectangle(0, 0, width, height, color:CustomColor(1, 1, 1, 0.2))   // used for debugging to see the size of the pixelmap
-
-        return map
-    end
+    Format format = SetupFormat()
     
-    /*
-    This action initializes the format used for the pixel map.
-    */
-    private action SetupFormat() returns Format
-        Format format
-        format:SetValue(format:RGBA8888)
-        return format
-    end
-
-    /*
-    This action sets the EM size of the font.
-
-    Attribute: Parameter emSize EM size of the font.
-
-    Attribute: Example
-
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-
-            action CreateGame
-                FontRasterizer fontRasterizer
-                fontRasterizer:SetEmSize(2048)
-            end
-        end
-    */
-    action SetEmSize(integer emSize) 
-        me:emSize = emSize
-    end
-
-    /*
-    This action returns the EM size of the font.
-
-    Attribute: Returns Returns the EM size of the font.
-
-    Attribute: Example
-
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-
-            action CreateGame
-                FontRasterizer fontRasterizer
-                output fontRasterizer:GetEmSize()
-            end
-        end
-    */
-    action GetEmSize() returns integer
-        return me:emSize
-    end
-
-    /*
-    This action sets the maximum distance between two points of the glyph, on
-    the y-axis.
-
-    Attribute: Parameter maxSizeY The maximum distance between two points of the
-    glyph, on the y-axis.
-
-    Attribute: Example
-
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-
-            action CreateGame
-                FontRasterizer fontRasterizer
-                fontRasterizer:SetMaxYSize(48)
-            end
-        end
-    */
-    action SetMaxYSize(integer maxSizeY)
-        me:maximumSizeYAxis = maxSizeY
-    end
+    PixelMap pixelMap
+    Blending blending
+    blending:SetValue(blending:NONE)
+    pixelMap:SetBlending(blending)
+    Texture texture
+    Drawable drawable
+    Array<CoordinateVector> coordinates
+    Array<integer> endpoints
     
-    /*
-    This action returns the maximum distance between two points of the glyph, on
-    the y-axis.
+    me:edges:Empty()
+    me:activeEdgeListLeft:Empty()
+    me:activeEdgeListRight:Empty()
+    me:scanlineBuckets:Empty()
 
-    Attribute: Returns Returns the maximum distance between two points of the glyph,
-    on the y-axis.
+    coordinates = outline:GetPoints()
+    if coordinates:IsEmpty()
+    FontDrawable glyph
+        glyph:SetDrawable(undefined)
+        glyph:SetXMaximum(xMaximum)
+        glyph:SetYMaximum(scanlineMaximum)
+        glyph:SetXMinimum(xMinimum)
+        glyph:SetYMinimum(scanlineMinimum)
+        glyph:SetHeightFromBaseline(CalculateScaledCoordinate(scanlineMaximum, pixelSize, emSize))
+        return glyph
+    end
+    endpoints = outline:GetContourEndpoints()
 
-    Attribute: Example
+    outline:ScaleBezierPointsToFontSize(pixelSize, emSize)
+    outline:DisplayCoordinates()
+    coordinates = outline:GetPoints()
+    FindGlyphWidthAndHeight(outline)
 
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-
-            action CreateGame
-                FontRasterizer fontRasterizer
-                output fontRasterizer:GetMaxYSize()
-            end
+    pixelMap:CreatePixelMap(me:glyphWidth, me:glyphHeight, format)
+    CreateGlyphOutlineEdges(coordinates, endpoints)
+    integer i = 0
+    repeat while i < edges:GetSize()
+        GlyphOutlineEdge newEdge = edges:Get(i)
+        if newEdge:GetIsBezierCurve()
+            newEdge:FindXIntercepts()
         end
-    */
-    action GetMaxYSize() returns integer
-        return me:maximumSizeYAxis
+        i = i + 1
     end
 
-    /*
-    This action sets the maximum distance between two points of the glyph, on
-    the x-axis.
-
-    Attribute: Parameter maxSizeX The maximum distance between two points of the
-    glyph, on the x-axis.
-
-    Attribute: Example
-
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-
-            action CreateGame
-                FontRasterizer fontRasterizer
-                fontRasterizer:SetMaxXSize(48)
-            end
-        end
-    */
-    action SetMaxXSize(integer maxSizeX)
-        me:maximumSizeXAxis = maxSizeX
+    PlaceEdgesIntoScanlineBuckets()
+    TestAntiAlias(pixelMap)
+    DrawScanlines(pixelMap, color)
+    texture:FinishLoadingAsynchronously(undefined, pixelMap, format, false, undefined)
+    //texture:LoadFromPixelMap(pixelMap)
+    drawable:Load(texture)
+    xOffset = xOffset + pixelSize
+    if(xOffset >= screenXSize)
+        xOffset = 0
+        yOffset = yOffset + pixelSize
     end
-   
-    /*
-    This action returns the maximum distance between two points of the glyph, on
-    the x-axis.
+    //drawable:SetPosition(10 + xOffset, scanlineMinimum + yOffset)
+    FontDrawable glyph
+    glyph:SetDrawable(drawable)
+    glyph:SetXMaximum(xMaximum)
+    glyph:SetYMaximum(scanlineMaximum)
+    glyph:SetXMinimum(xMinimum)
+    glyph:SetYMinimum(scanlineMinimum)
+    glyph:SetHeightFromBaseline(CalculateScaledCoordinate(scanlineMaximum, pixelSize, emSize))
 
-    Attribute: Returns Returns the maximum distance between two points of the glyph,
-    on the x-axis.
+    return glyph
+end
 
-    Attribute: Example
+action CalculateScaledCoordinate(integer coordinate, integer pixelSize, integer emSize) returns integer
+    return coordinate * pixelSize / emSize
+end
 
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
+private action SetupFormat() returns Format
+    Format format
+    format:SetValue(format:RGBA8888)
+    return format
+end
 
-        class Main is Game
-            action Main
-                StartGame()
-            end
+private action SetupPixelMap(number width, number height, Format format) returns PixelMap
+    Color color
+    PixelMap pixelMap
+    pixelMap:SetColor(color:Black())
+    pixelMap:CreatePixelMap(cast(integer, width), cast(integer, height), format)
 
-            action CreateGame
-                FontRasterizer fontRasterizer
-                output fontRasterizer:GetMaxXSize()
-            end
-        end
-    */
-    action GetMaxXSize() returns integer
-        return me:maximumSizeXAxis
-    end
+    return pixelMap
+end
 
-    /*
-    This action sets the dots per inch along the x-axis of the display.
+action SetEmSize(integer emSize)
+    me:emSize = emSize
+end
 
-    Attribute: Parameter xDPI The dots per inch along the x-axis.
+action GetEmSize() returns integer
+    return me:emSize
+end
 
-    Attribute: Example
+action SetMaxXSize(integer newSize)
+    me:xMaximum = newSize
+end
 
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
+action SetMaxYSize(integer newSize)
+    me:scanlineMaximum = newSize
+end
 
-        class Main is Game
-            action Main
-                StartGame()
-            end
+action SetSize(integer size)
+    me:pixelSize = size
+    me:xMaximum = cast(integer, 2*size)
+    me:scanlineMaximum = cast(integer, 1.5*size)
+end
 
-            action CreateGame
-                FontRasterizer fontRasterizer
-                fontRasterizer:SetXDotsPerInch(96)
-            end
-        end 
-    */
-    action SetXDotsPerInch (integer xDPI)
-        me:xDotsPerInch = xDPI
-    end
-
-    /*
-    This action returns the dots per inch along the x-axis of the display.
-
-    Attribute: Returns Returns the dots per inch along the x-axis.
-
-    Attribute: Example
-
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-            
-            action CreateGame
-                FontRasterizer fontRasterizer
-                output fontRasterizer:GetXDotsPerInch()
-            end
-        end
-    */
-    action GetXDotsPerInch() returns  integer
-        return me:xDotsPerInch
-    end
-
-    /*
-    This action sets the dots per inch along the y-axis of the display.
-
-    Attribute: Parameter yDPI The dots per inch along the y-axis.
-
-    Attribute: Example
-
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-
-            action CreateGame
-                FontRasterizer fontRasterizer
-                fontRasterizer:SetYDotsPerInch(96)
-            end
-        end 
-    */
-    action SetYDotsPerInch (integer yDPI)
-        me:yDotsPerInch = yDPI
-    end
-
-    /*
-    This action returns the dots per inch along the y-axis of the display.
-
-    Attribute: Returns Returns the dots per inch along the y-axis.
-
-    Attribute: Example
-
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-            
-            action CreateGame
-                FontRasterizer fontRasterizer
-                output fontRasterizer:GetYDotsPerInch()
-            end
-        end
-    */
-    action GetYDotsPerInch () returns integer
-        return me:yDotsPerInch
-    end
-
-    /*
-    This action sets the pixel size, maximum distance between two points on the
-    x-axis and maximum distance between two points on the y-axis for a glyph.
-
-    Attribute: Parameter size The pixel size of the glyph, also used to calculate
-    the maximum distance between two points on both axes.
-
-    Attribute: Example
-
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-
-            action CreateGame
-                FontRasterizer fontRasterizer
-                fontRasterizer:SetSize(14)
-            end
-        end
-    */
-    action SetSize(integer size)
-       me:pixelSize = size  
-       me:maximumSizeXAxis = cast(integer, 2*size)
-       me:maximumSizeYAxis = cast(integer, 1.5*size)
-    end
-
-    /*
-    This action returns the pixel size of the glyph.
-
-    Attribute: Returns Returns the pixel size of the glyph.
-
-    Attribute: Example
-
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-            
-            action CreateGame
-                FontRasterizer fontRasterizer
-                output fontRasterizer:GetSize()
-            end
-        end
-    */
-    action GetSize returns integer
-        return me:pixelSize
-    end
-
-    /*
-    This action sets the point size used for the glyph, such as 12 point font.
-
-    Attribute: Parameter pointSize The point size of the font.
-
-    Attribute: Example
-
-        use Libraries.Game.Graphics.Fonts.all
-        use Libraries.Game.Game
-
-        class Main is Game
-            action Main
-                StartGame()
-            end
-
-            action CreateGame()
-                FontRasterizer fontRasterizer
-                fontRasterizer:SetPointSize(12)
-            end
-        end
-    */
-    action SetPointSize(integer pointSize) 
-       SetSize(cast(integer,(pointSize*yDotsPerInch)/72))
-    end
 end
