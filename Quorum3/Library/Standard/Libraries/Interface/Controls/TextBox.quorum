@@ -4,6 +4,7 @@ use Libraries.Interface.Item2D
 use Libraries.Game.GameStateManager
 use Libraries.Game.Graphics.Drawable
 use Libraries.Game.Graphics.Color
+use Libraries.Game.Graphics.ColorGroup
 use Libraries.Game.Graphics.Font
 use Libraries.Game.Graphics.Texture
 use Libraries.Game.Graphics.Glyph
@@ -15,15 +16,21 @@ use Libraries.Interface.Events.FocusListener
 use Libraries.Interface.Events.FocusEvent
 use Libraries.Interface.Events.TextChangeEvent
 use Libraries.Interface.Events.TextChangeListener
-use Libraries.Interface.Layouts.Layout
+use Libraries.Interface.Layouts.ManualLayout
+use Libraries.Interface.Layouts.LayoutProperties
 use Libraries.Interface.Selections.TextBoxSelection
+use Libraries.Interface.Views.DrawableView
 use Libraries.Containers.Array
 use Libraries.Containers.MultipleLineText
 use Libraries.Containers.Support.Pair
 use Libraries.System.File
 use Libraries.Compute.Math
+use Libraries.Interface.Undo.EditManager
+use Libraries.Interface.Undo.TextBoxEdit
+use Libraries.Interface.Undo.TextBoxEditState
+use Libraries.Game.Game
 
-class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListener, FocusListener
+class TextBox is Control, MouseListener, MouseMovementListener, MouseWheelListener, FocusListener
 
     /*
     All of the text contained in this object.
@@ -108,23 +115,23 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
     /*
     The color of the selection highlight.
     */
-    Color selectionColor
+    ColorGroup selectionColor = undefined
 
     /*
     The texture used for the selection higlight. Initialized as a 1x1 white texture.
     */
-    Texture selectionTexture
+    Texture selectionTexture = undefined
 
-    Drawable background
-    Drawable horizontalBar
-    Drawable horizontalControl
-    Drawable verticalBar
-    Drawable verticalControl
+    Control background
+    Control horizontalBar
+    Control horizontalControl
+    Control verticalBar
+    Control verticalControl
 
-    Layout horizontalBarLayout
-    Layout horizontalControlLayout
-    Layout verticalBarLayout
-    Layout verticalControlLayout
+    LayoutProperties horizontalBarProperties
+    LayoutProperties horizontalControlProperties
+    LayoutProperties verticalBarProperties
+    LayoutProperties verticalControlProperties
     
     number scrollDistance = 3
     integer barThickness = 20
@@ -161,10 +168,11 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
     boolean resizingScrollBars = false
 
     /*
-    The IdentationStrategy is used while using the TAB and SHIFT-TAB commands to
+    The IndentationStrategy is used while using the TAB and SHIFT-TAB commands to
     increase or decrease indentation. The default strategy uses spaces.
     */
     IndentationStrategy indentation
+    EditManager editManager = undefined
 
     Math math
 
@@ -180,31 +188,105 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
 
 //        SetSelectionType(parent:Selectable:RANGE_SELECTION)
 
+        background:SetName("TextBox Background")
         Add(background)
 
         textValue:DisableTextWrapping()
 
-        if font:FontIsAvailable("Courier New")
-            font:LoadFont("Courier New")
-        elseif font:FontIsAvailable("Courier")
-            font:LoadFont("Courier")
-        elseif font:FontIsAvailable("cour")
-            font:LoadFont("cour")
-        elseif font:FontIsAvailable("Roboto-Black")
-            font:LoadFont("Roboto-Black")
-        elseif font:FontIsAvailable("Arial")
-            font:LoadFont("Arial")
-        else
-            Array<File> availableFontFiles = font:GetAvailableFonts()
-            if availableFontFiles:GetSize() > 0
-                font:LoadFont(availableFontFiles:Get(0))
-            end
+        text defaultFontName = GetDefaultFontName()
+        if defaultFontName not= undefined
+            font:LoadFont(defaultFontName)
         end
 
         selection:Initialize(me, "")
-
-        selectionColor:SetColor(0.75, 0.75, 1, 1)
         SetAccessibilityCode(parent:Item:TEXTBOX)
+
+        ManualLayout layout
+        SetLayout(layout)
+
+        textValue:Initialize("")
+
+        LayoutProperties backgroundLayout = background:GetDefaultLayoutProperties()
+        backgroundLayout:SetPercentageWidth(1)
+        backgroundLayout:SetPercentageHeight(1)
+
+        Color color
+
+        LayoutProperties defaultProperties = GetDefaultLayoutProperties()
+        defaultProperties:SetFontColor(color:Black())
+        defaultProperties:SetFont(font)
+        defaultProperties:SetBackgroundColor(color:White())
+        defaultProperties:SetSelectionColor(color:CustomColor(0.75, 0.75, 1, 1))
+        defaultProperties:SetSelectionFontColor(color:Black())
+
+        verticalBar:SetName("Vertical Scroll Track")
+        verticalControl:SetName("Vertical Scroll Control")
+        horizontalBar:SetName("Horizontal Scroll Track")
+        horizontalControl:SetName("Horizontal Scroll Control")
+
+        ManualLayout verticalLayout
+        ManualLayout horizontalLayout
+        verticalBar:SetLayout(verticalLayout)
+        horizontalBar:SetLayout(horizontalLayout)
+
+        /*
+        By default, the vertical bar has width equal to the bar thickness, has a
+        height equal to the height of its container, and has its top right 
+        corner touching the top right corner of the container.
+        */
+        verticalBarProperties:SetPercentageX(1)
+        verticalBarProperties:SetPercentageOriginX(1)
+        verticalBarProperties:SetPercentageY(1)
+        verticalBarProperties:SetPercentageOriginY(1)
+        verticalBarProperties:SetPercentageHeight(1)
+        verticalBarProperties:SetPixelWidth(barThickness)
+
+        verticalBar:AddLayoutProperties(verticalBarProperties)
+
+        /*
+        The horizontal bar has width equal to its container's width, height
+        equal to the bar thickness, and lies along the bottom of the text box.
+        */
+        horizontalBarProperties:SetPercentageX(0)
+        horizontalBarProperties:SetPercentageY(0)
+        horizontalBarProperties:SetPercentageWidth(1)
+        horizontalBarProperties:SetPixelHeight(barThickness)
+
+        horizontalBar:AddLayoutProperties(horizontalBarProperties)
+
+        /*
+        The vertical control begins at the top of the bar, and its width fully
+        fills the bar. Its height is not set here, instead being set during
+        Resize().
+        */
+        verticalControlProperties:SetPercentageOriginY(1)
+        verticalControlProperties:SetPercentageY(1)
+        verticalControlProperties:SetPercentageX(0)
+        verticalControlProperties:SetPercentageWidth(1)
+
+        verticalControl:AddLayoutProperties(verticalControlProperties)
+
+        /*
+        The horizontal control begins at the left of the bar, and its height
+        fully fills the bar. Its width is not set here, instead being set during
+        Resize().
+        */
+        horizontalControlProperties:SetPercentageX(0)
+        horizontalControlProperties:SetPercentageY(0)
+        horizontalControlProperties:SetPercentageHeight(1)
+
+        horizontalControl:AddLayoutProperties(horizontalControlProperties)
+
+        Add(verticalBar)
+        Add(horizontalBar)
+        verticalBar:Add(verticalControl)
+        horizontalBar:Add(horizontalControl)
+
+        HideCaret()
+
+        GameStateManager gsm
+        Game game = gsm:GetGame()
+        editManager = game:GetEditManager()
     end
 
     action GetLeftCharacterPadding returns integer
@@ -215,37 +297,60 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
         leftCharacterPadding = padding
     end
 
-    action Initialize(number width, number height, Color backgroundColor, text value)
-        selectionTexture:LoadFilledRectangle(1, 1)
-
-        textValue:Initialize(value)
-
-        Layout backgroundLayout
-        backgroundLayout:SetPercentageWidth(1)
-        backgroundLayout:SetPercentageHeight(1)
-        background:AddLayout(backgroundLayout)
-
-        if backgroundColor not= undefined
-            background:LoadFilledRectangle(cast(integer, width), cast(integer, height), backgroundColor)
+    /*
+    This action is used to load the graphical components of the Control. This is
+    handled automatically by the Game engine as needed, and most users shouldn't
+    need to use this action directly.
+    */
+    action LoadGraphics(LayoutProperties properties)
+        if selectionTexture = undefined
+            Texture texture
+            selectionTexture = texture
+            selectionTexture:LoadFilledRectangle(1, 1)
         end
 
-        SetSize(width, height)
+        ColorGroup backgroundColor = properties:GetBackgroundColor()
 
-        CreateScrollBars()
+        if backgroundColor not= undefined
+            DrawableView backgroundView
+            backgroundView:LoadFilledRectangle(1, 1, backgroundColor)
+            background:SetView2D(backgroundView)
+        end
 
-        InitializeCaret()
-        caret:Hide()
-        caretActive = false
+        Color color
+
+        DrawableView verticalBarView
+        DrawableView horizontalBarView
+        DrawableView verticalControlView
+        DrawableView horizontalControlView
+
+        verticalBarView:LoadFilledRectangle(1, 1, color:CustomColor(0.9, 0.9, 0.9, 1))
+        horizontalBarView:LoadFilledRectangle(1, 1, color:CustomColor(0.9, 0.9, 0.9, 1))
+        verticalControlView:LoadFilledRectangle(1, 1, color:CustomColor(0.75, 0.75, 0.75, 1))
+        horizontalControlView:LoadFilledRectangle(1, 1, color:CustomColor(0.75, 0.75, 0.75, 1))
+
+        verticalBar:SetView2D(verticalBarView)
+        horizontalBar:SetView2D(horizontalBarView)
+        verticalControl:SetView2D(verticalControlView)
+        horizontalControl:SetView2D(horizontalControlView)
+
+        Color fontColor = properties:GetFontColor()
+        if fontColor = undefined
+            fontColor = color:Black()
+        end
+
+        caretColor = fontColor
+
+        ColorGroup highlightColor = properties:GetSelectionColor()
+        if highlightColor = undefined
+            highlightColor = color:CustomColor(0.75, 0.75, 1, 1)
+        end
+
+        selectionColor = highlightColor
+
+        parent:Control:LoadGraphics(properties)
 
         GetLineDrawables()
-    end
-
-    action Initialize(number width, number height, Color backgroundColor)
-        Initialize(width, height, backgroundColor, "")
-    end
-
-    action GetBackground returns Drawable
-        return background
     end
 
     action Resize
@@ -259,15 +364,15 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
         number barWidth = width
 
         if verticalVisible and horizontalVisible
-            verticalBarLayout:SetHeightOffset(-barThickness)
-            horizontalBarLayout:SetWidthOffset(-barThickness)
+            verticalBarProperties:SetPixelHeight(-barThickness)
+            horizontalBarProperties:SetPixelWidth(-barThickness)
             barHeight = height - barThickness
             barWidth = width - barThickness
             verticalRatio = barHeight / GetScrollRegionHeight()
             horizontalRatio = barWidth / GetScrollRegionWidth()
         else
-            verticalBarLayout:SetHeightOffset(0)
-            horizontalBarLayout:SetWidthOffset(0)
+            verticalBarProperties:SetPixelHeight(0)
+            horizontalBarProperties:SetPixelWidth(0)
         end
 
         if verticalRatio > 1.0
@@ -279,31 +384,51 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
         end
 
         if verticalVisible
-            verticalControlLayout:SetPercentageHeight(verticalRatio)
+            verticalControlProperties:SetPercentageHeight(verticalRatio)
             verticalBar:Show()
         else
             verticalBar:Hide()
         end
 
         if horizontalVisible
-            horizontalControlLayout:SetPercentageWidth(horizontalRatio)
+            horizontalControlProperties:SetPercentageWidth(horizontalRatio)
             horizontalBar:Show()
         else
             horizontalBar:Hide()
         end
 
+        // UpdatePaneView also calls the parent Resize action from Item2D, so
+        // layouts will properly be applied.
         UpdatePaneView(horizontal, vertical)
     end
 
     private action ResizeLineDrawables
-        parent:Item2D:Resize()
         GetLineDrawables()
+        parent:Item2D:Resize()
     end
 
     /*
     Makes everything from scratch. For initialization purposes.
     */
     private action GetLineDrawables
+        if selectionTexture = undefined
+            // If we don't have a selection texture, the graphics haven't been
+            // loaded yet, and we should wait until they are to create the
+            // drawables for text.
+            return now
+        end
+
+        LayoutProperties currentProperties = GetCurrentLayoutProperties()
+        Color fontColor = currentProperties:GetFontColor()
+        Color selectedFontColor = currentProperties:GetSelectionFontColor()
+
+        if font:GetSize() not= cast(integer, (currentProperties:GetFontSize() * currentProperties:GetInterfaceScale()))
+            font:SetSize(cast(integer, currentProperties:GetFontSize() * currentProperties:GetInterfaceScale()))
+        end
+
+        // Ensure caret is correct size.
+        InitializeCaret()
+
         Array<MultipleLineText> lines = textValue:GetLines()
         text separator = textValue:GetLineSeparator()
         integer totalLines = lines:GetSize()
@@ -378,6 +503,12 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
                     draw:SetPosition(x + glyph:lengthToGlyph, yPosition + glyph:heightFromBaseLine - draw:GetHeight())
                     drawables:Add(draw)
                     background:Add(draw)
+
+                    if highlighted
+                        draw:SetColor(selectedFontColor)
+                    else
+                        draw:SetColor(fontColor)
+                    end
                 end
                 x = x + glyph:horizontalAdvance
                 characterCounter = characterCounter + 1
@@ -392,15 +523,18 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
     end
 
     private action InitializeCaret
-        if caret:IsLoaded()
-            if caret:GetWidth() not= caretThickness or caret:GetHeight() not= font:GetLineHeight()
-                caret:Dispose()
-            else
-                return now
-            end
+        if caret:IsLoaded() = false
+            caret:LoadFilledRectangle(1, 1)
+            caret:SetName("TextBox Caret")
         end
-        caret:LoadFilledRectangle(caretThickness, font:GetLineHeight(), caretColor)
-        caret:SetName("TextBox Caret")
+
+        integer thickness = caretThickness
+        if GetCurrentLayoutProperties() not= undefined
+            thickness = cast(integer, caretThickness * GetCurrentLayoutProperties():GetInterfaceScale())
+        end
+
+        caret:SetSize(thickness, font:GetLineHeight())
+        caret:SetColor(caretColor)
     end
 
     /*
@@ -528,17 +662,6 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
     end
 
     /*
-    For testing purposes.
-    */
-    action SetCaretPosition(integer line, integer index)
-        caretLine = line
-        caretCharacter = index
-        caretX = PositionCaret()
-
-        EmptySelectionEvent(false)
-    end
-
-    /*
     Sets the caret to a particular index. Left private because it does not
     adjust the selection, update the visuals, or trigger any events, and is only 
     used in preparation for other calls which will perform some tasks from the 
@@ -547,6 +670,25 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
     private action SetCaretToIndex(integer index)
         caretLine = textValue:LineIndexFromCharacterIndex(index)
         caretCharacter = index - textValue:CharacterIndexFromLineIndex(caretLine)
+
+        text lineText = GetCurrentLineText()
+        text separator = textValue:GetLineSeparator()
+        integer size = lineText:GetSize()
+        if lineText:EndsWith(separator)
+            size = size - separator:GetSize()
+
+            /*
+            If the caret character exceeds the size of the line, then the caret is
+            in the middle of a multiple-character line separator. (Note that this
+            isn't possible if the separator is a single character -- if the index
+            would exceed a single-character separator, it already would've been
+            placed on the next line automatically by LineIndexFromCharacterIndex().)
+            */
+            if caretCharacter > size
+                caretLine = caretLine + 1
+                caretCharacter = 0
+            end
+        end
     end
 
     action MoveCaretLeft(boolean selecting)
@@ -554,7 +696,7 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
             return now
         end
 
-        integer oldIndex = GetCaretIndex()
+        integer oldIndex = GetCaretPosition()
 
         if caretCharacter = 0
             if caretLine = 0
@@ -595,7 +737,7 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
             return now
         end
 
-        integer oldIndex = GetCaretIndex()
+        integer oldIndex = GetCaretPosition()
 
         text lineText = GetCurrentLineText()
         text separator = textValue:GetLineSeparator()
@@ -679,7 +821,7 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
             return now
         end
 
-        integer oldIndex = GetCaretIndex()
+        integer oldIndex = GetCaretPosition()
 
         caretLine = caretLine + 1
         caretCharacter = GetNearestCharacter(caretLine, caretX)
@@ -712,7 +854,7 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
             return now
         end
 
-        integer oldIndex = GetCaretIndex()
+        integer oldIndex = GetCaretPosition()
 
         caretLine = caretLine - 1
         caretCharacter = GetNearestCharacter(caretLine, caretX)
@@ -937,6 +1079,10 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
     end
 
     action Insert(text value)
+        TextBoxEdit edit
+        TextBoxEditState oldState = GetCurrentEditState()
+        edit:SetUndoState(oldState)
+
         text deletedText = ""
 
         lastInsertion = value
@@ -946,7 +1092,7 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
             DeleteSelection()
         end
 
-        textValue = textValue:Insert(GetCaretIndex(), value)
+        textValue = textValue:Insert(GetCaretPosition(), value)
         
         text separator = textValue:GetLineSeparator()
 
@@ -984,8 +1130,7 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
         end
 
         number lineWidth = GetLineWidth(caretLine)
-        number thing = GetScrollRegionWidth()
-        if lineWidth > thing
+        if lineWidth > GetScrollRegionWidth()
             // Increase scroll region width and resize bars.
             // Setting the scroll region width to -1 forces recalculation.
             scrollRegionWidth = -1
@@ -999,78 +1144,22 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
 
         EmptySelectionEvent(true)
 
+        TextBoxEditState newState = GetCurrentEditState()
+        edit:SetRedoState(newState)
+        editManager:Add(edit)
+
         TextChangeEvent changeEvent
         changeEvent:Initialize(me, value, deletedText)
 
         NotifyTextChangeListeners(changeEvent)
     end
 
-    private action CreateScrollBars
-        Color color
-        verticalBar:LoadFilledRectangle(1, 1, color:CustomColor(0.9, 0.9, 0.9, 1))
-        horizontalBar:LoadFilledRectangle(1, 1, color:CustomColor(0.9, 0.9, 0.9, 1))
-        verticalControl:LoadFilledRectangle(1, 1, color:CustomColor(0.75, 0.75, 0.75, 1))
-        horizontalControl:LoadFilledRectangle(1, 1, color:CustomColor(0.75, 0.75, 0.75, 1))
+    action GetEditManager returns EditManager
+        return editManager
+    end
 
-        verticalBar:SetName("Vertical Scroll Track")
-        verticalControl:SetName("Vertical Scroll Control")
-        horizontalBar:SetName("Horizontal Scroll Track")
-        horizontalControl:SetName("Horizontal Scroll Control")
-
-        /*
-        By default, the vertical bar has width equal to the bar thickness, has a
-        height equal to the height of its container, and has its top right 
-        corner touching the top right corner of the container.
-        */
-        verticalBarLayout:SetPercentageX(1)
-        verticalBarLayout:SetPercentageOriginX(1)
-        verticalBarLayout:SetPercentageY(1)
-        verticalBarLayout:SetPercentageOriginY(1)
-        verticalBarLayout:SetPercentageHeight(1)
-        verticalBarLayout:SetWidthOffset(barThickness)
-
-        verticalBar:AddLayout(verticalBarLayout)
-
-        /*
-        The horizontal bar has width equal to its container's width, height
-        equal to the bar thickness, and lies along the bottom of the text box.
-        */
-        horizontalBarLayout:SetPercentageX(0)
-        horizontalBarLayout:SetPercentageY(0)
-        horizontalBarLayout:SetPercentageWidth(1)
-        horizontalBarLayout:SetHeightOffset(barThickness)
-
-        horizontalBar:AddLayout(horizontalBarLayout)
-
-        /*
-        The vertical control begins at the top of the bar, and its width fully
-        fills the bar. Its height is not set here, instead being set during
-        Resize().
-        */
-        verticalControlLayout:SetPercentageOriginY(1)
-        verticalControlLayout:SetPercentageY(1)
-        verticalControlLayout:SetPercentageX(0)
-        verticalControlLayout:SetPercentageWidth(1)
-
-        verticalControl:AddLayout(verticalControlLayout)
-
-        /*
-        The horizontal control begins at the left of the bar, and its height
-        fully fills the bar. Its width is not set here, instead being set during
-        Resize().
-        */
-        horizontalControlLayout:SetPercentageX(0)
-        horizontalControlLayout:SetPercentageY(0)
-        horizontalControlLayout:SetPercentageHeight(1)
-
-        horizontalControl:AddLayout(horizontalControlLayout)
-
-        Add(verticalBar)
-        Add(horizontalBar)
-        verticalBar:Add(verticalControl)
-        horizontalBar:Add(horizontalControl)
-
-        Resize()
+    action SetEditManager(EditManager edits)
+        me:editManager = edits
     end
 
     action SetScrollDistance(number distance)
@@ -1141,16 +1230,16 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
             boolean atEnd = selection:IsCaretAtEnd()
 
             if atEnd
-                if GetCaretIndex() < selection:GetStartIndex()
-                    Select(GetCaretIndex(), selection:GetStartIndex(), false)
+                if GetCaretPosition() < selection:GetStartIndex()
+                    Select(GetCaretPosition(), selection:GetStartIndex(), false)
                 else
-                    Select(selection:GetStartIndex(), GetCaretIndex(), true)
+                    Select(selection:GetStartIndex(), GetCaretPosition(), true)
                 end
             else
-                if GetCaretIndex() > selection:GetEndIndex()
-                    Select(selection:GetEndIndex(), GetCaretIndex(), true)
+                if GetCaretPosition() > selection:GetEndIndex()
+                    Select(selection:GetEndIndex(), GetCaretPosition(), true)
                 else
-                    Select(GetCaretIndex(), selection:GetEndIndex(), false)
+                    Select(GetCaretPosition(), selection:GetEndIndex(), false)
                 end
             end
         else
@@ -1226,10 +1315,10 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
 
         number sharedSpaceOffset = GetSharedSpaceOffset()
 
-        verticalControlLayout:SetPercentageY(vertical)
-        verticalControlLayout:SetOffsetY(((1 - vertical) * ((GetHeight() + verticalBarLayout:GetHeightOffset()) * verticalControlLayout:GetPercentageHeight())))
-        horizontalControlLayout:SetPercentageX(horizontal)
-        horizontalControlLayout:SetOffsetX(-(horizontal * ((GetWidth() + horizontalBarLayout:GetWidthOffset()) * horizontalControlLayout:GetPercentageWidth())))
+        verticalControlProperties:SetPercentageY(vertical)
+        verticalControlProperties:SetPixelY(((1 - vertical) * ((GetHeight() + verticalBarProperties:GetPixelHeight()) * verticalControlProperties:GetPercentageHeight())))
+        horizontalControlProperties:SetPercentageX(horizontal)
+        horizontalControlProperties:SetPixelX(-(horizontal * ((GetWidth() + horizontalBarProperties:GetPixelWidth()) * horizontalControlProperties:GetPercentageWidth())))
 
         verticalControl:Resize()
         horizontalControl:Resize()
@@ -1396,23 +1485,75 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
         return caretMoveTime
     end
 
+    /*
+    The SetCaretPosition action places the caret at the requested global index
+    within the text of the TextBox. Note that if the index requested would be in
+    the middle of a line separator, the caret will be placed at the end of the
+    line separator on the next line, which can cause the actual index of the
+    caret to be slightly higher.
+    */
+    action SetCaretPosition(integer index)
+        SetCaretToIndex(index)
+        caretX = PositionCaret()
+
+        EmptySelectionEvent(false)
+    end
+
+    /*
+    The SetCaretPositionToLine action sets the caret to the beginning of the
+    specified line.
+    */
+    action SetCaretPositionToLine(integer line)
+        SetCaretPosition(GetIndexOfLine(line))
+    end
+
+    /*
+    The GetCaretLine action returns the index of the line that the caret is
+    currently located on.
+    */
     action GetCaretLine returns integer
         return caretLine
     end
 
-    action GetCaretIndex returns integer
+    /*
+    The GetCaretPosition action returns the global index of the caret within the
+    TextBox.
+    */
+    action GetCaretPosition returns integer
         return textValue:CharacterIndexFromLineIndex(caretLine) + caretCharacter
     end
 
-    action GetCaretLineIndex returns integer
+    /*
+    The GetCaretLinePosition action returns the index of the caret within the
+    line it is currently located. To get the global index, use GetCaretPosition
+    instead, or to get the line that the caret is on, use GetCaretLine.
+    */
+    action GetCaretLinePosition returns integer
         return caretCharacter
     end
 
+    /*
+    This action will return the global index of the beginning of the given line.
+    */
     action GetIndexOfLine(integer line) returns integer
         return textValue:CharacterIndexFromLineIndex(line)
     end
 
-    action GetLines returns MultipleLineText
+    /*
+    This action will return the number of lines in the text.
+    */
+    action GetLineCount returns integer
+        return textValue:GetLineCount()
+    end
+
+    /*
+    This action returns the total number of characters of text in the TextBox.
+    */
+    action GetSize returns integer
+        return textValue:GetSize()
+    end
+
+    action GetMultipleLineText returns MultipleLineText
         return textValue
     end
 
@@ -1420,8 +1561,20 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
         return textValue:GetText()
     end
 
+    action GetText(integer startIndex, integer endIndex) returns text
+        return textValue:GetText(startIndex, endIndex)
+    end
+
     action GetCurrentLineText() returns text
         return textValue:GetLine(caretLine):GetText()
+    end
+
+    action GetLine(integer line) returns text
+        return textValue:GetLine(line):GetText()
+    end
+
+    action SetLine(integer line, text value)
+        // NYI
     end
 
     action Empty
@@ -1585,5 +1738,33 @@ class TextBox is Item2D, MouseListener, MouseMovementListener, MouseWheelListene
     */
     action GetDefaultLineSeparator returns text
         return textValue:GetDefaultLineSeparator()
+    end
+
+    /*
+    This action returns a TextEditState object which describes the current text,
+    caret position, and selection within the TextBox.
+    */
+    action GetCurrentEditState returns TextBoxEditState
+        TextBoxEditState state
+        state:Set(textValue, GetCaretPosition(), selection)
+        return state
+    end
+
+    /*
+    This action sets the TextBox to reflect the same text, caret position, and
+    selection as described in the provided TextEditState.
+    */
+    action SetFromEditState(TextBoxEditState state)
+        textValue = state:GetMultipleLineText()
+        SetCaretToIndex(state:GetCaretPosition())
+
+        Resize()
+
+        FitCharacterOnScreen(caretLine, caretCharacter)
+        GetLineDrawables()
+        caretX = PositionCaret()
+        ShowCaret()
+
+        Select(state:GetStartIndex(), state:GetEndIndex(), state:IsCaretAtEnd())
     end
 end

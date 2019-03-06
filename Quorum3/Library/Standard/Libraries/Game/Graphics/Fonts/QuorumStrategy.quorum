@@ -261,6 +261,58 @@ end
         end    
     end
 
+    /*
+    This action will load a font by name from the system. On Windows, this will
+    search for fonts in "C:\Windows\Fonts". On Mac, this will search for fonts
+    in "/Library/Fonts". On Android, this will search for fonts in "/system/fonts".
+
+    Attribute: Parameter fontName The name of the font to load.
+
+    Attribute: Example
+
+        use Libraries.Game.Graphics.Font
+        use Libraries.Game.Game
+
+        class Main is Game
+            action Main
+                StartGame()
+            end
+
+            action CreateGame
+                Font font
+                font:LoadFont("Arial")
+            end
+        end
+    */
+    action LoadFont(text fontName)
+
+        File fontFile
+        text os = GetOS()
+
+        if os:Contains("Windows")
+            fontFile:SetWorkingDirectory("C:\Windows\Fonts")
+        elseif os:Contains("Mac OS X") or os:Contains("iOS Simulator")
+            fontFile:SetWorkingDirectory("/Library/Fonts")
+        elseif os:Contains("iOS Device")
+            fontFile:SetWorkingDirectory("/System/Library/Fonts/Core")
+        elseif os:Contains("Web Browser")
+            fontFile:SetWorkingDirectory("fonts")
+        else
+            fontFile:SetWorkingDirectory("/system/fonts")
+        end
+
+        text fontPath = FindFontExtension(fontName)
+        if fontPath = ""
+            alert("No font file named " + fontName + " could be found on the system!")
+        else
+            fontFile:SetPath(fontPath)
+            LoadFont(fontFile)
+        end
+    end
+
+    private action FindFontExtension(text fontName) returns text
+        File fontFile
+        text os = GetOS()
 private action FindFontExtension(text fontName) returns text
     File fontFile
     text os = GetOS()
@@ -271,6 +323,12 @@ private action FindFontExtension(text fontName) returns text
             fontFile:SetWorkingDirectory("/Library/Fonts")
         elseif os:Contains("iOS Device")
             fontFile:SetWorkingDirectory("/System/Library/Fonts/Core")
+        elseif os:Contains("Web Browser")
+            if FontIsAvailable(fontName)
+                return fontName + ".ttf"
+            else 
+                return ""
+            end
         else
             fontFile:SetWorkingDirectory("/system/fonts/")
         end
@@ -428,10 +486,19 @@ end
     end
 
     action FontIsAvailable(text fontName) returns boolean
-        if FindFontExtension(fontName) = ""
-            return false
-        else
-            return true
+        text os = GetOS()
+        if os:Contains("Web Browser")
+            if fontName = "Roboto-Black"
+                return true
+            else 
+                return false
+            end
+        else 
+            if FindFontExtension(fontName) = ""
+                return false
+            else
+                return true
+            end
         end
     end
 
@@ -496,6 +563,12 @@ end
             fontDirectory:SetWorkingDirectory("/System/Library/Fonts/Core")
             fontDirectory:SetPath("")
             fontFiles = fontDirectory:GetDirectoryListing()
+        elseif os:Contains("Web Browser")
+            Array<File> fontFiles2
+            fontFiles = fontFiles2
+            File file
+            file:SetPath("fonts/Roboto-Black.ttf")
+            fontFiles:Add(file)
         else    // Linux and Android
             fontDirectory:SetWorkingDirectory("/system/fonts/")
             fontDirectory:SetPath("")
@@ -519,7 +592,18 @@ end
         end
         glyphTable:Empty()
     end
-      
+
+    action GetMaximumAscent returns integer
+        return fileInformation:GetMaximumAscent()
+    end
+
+    action GetMaximumDescent returns integer
+        return fileInformation:GetMaximumDescent()
+    end
+
+    action GetLineGap returns integer
+        return fileInformation:GetLineGap()
+    end
 end
 
 
