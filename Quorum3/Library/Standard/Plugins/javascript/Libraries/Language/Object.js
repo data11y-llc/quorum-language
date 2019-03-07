@@ -129,7 +129,7 @@ function global_ErrorCheck(error) {
 function global_GetValue_(value, type) {
     if (value == null) {
         if(type == "number" || type == "boolean" || type == "integer") {
-            throw "party foul";
+            throw "An undefined value was detected with the type " + type + ".";
         } else {
             return null;
         }
