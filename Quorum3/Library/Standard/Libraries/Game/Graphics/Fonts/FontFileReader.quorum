@@ -10,6 +10,7 @@ use Libraries.Containers.Iterator
 use Libraries.Compute.BigInteger
 use Libraries.Compute.BitwiseOperations
 use Libraries.Game.Graphics.Fonts.all
+use Libraries.Game.GameStateManager
 
 /*
 The FontFileReader class is used to read font files. Currently it only supports
@@ -54,6 +55,11 @@ class FontFileReader
     KerningTable kerningTable
     /*TrueTypeCollectionRecords that maintains human-readable information about the font file.*/
     TrueTypeCollectionRecords trueTypeTable
+
+    // The QuorumStrategy stored here is the strategy that originally requested
+    // the file to be read. We store it here so we can refer back to it to
+    // finish font loading when we need to read a file asynchronously (i.e. the web).
+    QuorumStrategy strategy = undefined
 
     on create
         NULL_TERMINATOR = NULL_TERMINATOR:GetUnicodeValue(0)
@@ -119,18 +125,45 @@ class FontFileReader
             end
         end
     */
-    action Load(File fileInformation)
+    action Load(File fileInformation, QuorumStrategy quorumStrategy)
         if not fileInformation:Exists()
             alert ("File doesn't exist")
             return now
         end
+
+        strategy = quorumStrategy
+        GameStateManager manager
         BinaryFileReader reader
-        reader:OpenForRead(fileInformation)
-        byteArray = reader:ReadBytes()
+
+        // If we are in a web browser, we have to load the file asynchronously.
+        if manager:GetOperatingSystem() = "Web Browser"
+            AsynchronousFontLoader loader
+            loader:SetFontFileReader(me)
+            reader:OpenForRead(fileInformation, loader)
+        else
+            reader:OpenForRead(fileInformation)
+            byteArray = reader:ReadBytes()
+            // True type font format (ttf) is big endian
+            byteArray:SetBigEndian(true)
+            byteReader = byteArray:GetByteReader()
+            GetRecords()
+        end
+    end
+
+    /*
+    This action takes a BinaryFileReader which has already been used to open a
+    file asynchronously and finishes reading in the information.
+    */
+    action CompleteAsynchronousLoading(BinaryFileReader openedFileReader)
+        byteArray = openedFileReader:ReadBytes()
         // True type font format (ttf) is big endian
         byteArray:SetBigEndian(true)
         byteReader = byteArray:GetByteReader()
         GetRecords()
+
+        // Now that we've finished reading in the file, inform the QuorumStrategy
+        // that is using this reader that it can finish loading the Font.
+        strategy:FinishFontLoading(me)
     end
 
     // This action is used in the GetRecords() when reading a .ttc file. .ttc files

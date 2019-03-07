@@ -997,8 +997,8 @@ action DrawGlyph(BezierCurveGlyphPoints outline, integer xOffset, integer yOffse
     PlaceEdgesIntoScanlineBuckets()
     TestAntiAlias(pixelMap)
     DrawScanlines(pixelMap, color)
-    texture:FinishLoadingAsynchronously(undefined, pixelMap, format, false, undefined)
-    //texture:LoadFromPixelMap(pixelMap)
+    //texture:FinishLoadingAsynchronously(undefined, pixelMap, format, false, undefined)
+    texture:LoadFromPixelMap(pixelMap)
     drawable:Load(texture)
     xOffset = xOffset + pixelSize
     if(xOffset >= screenXSize)
@@ -1032,7 +1032,6 @@ private action SetupPixelMap(number width, number height, Format format) returns
     PixelMap pixelMap
     pixelMap:SetColor(color:Black())
     pixelMap:CreatePixelMap(cast(integer, width), cast(integer, height), format)
-
     return pixelMap
 end
 

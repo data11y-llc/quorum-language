@@ -1,0 +1,26 @@
+package Libraries.Game.Graphics.Fonts
+
+use Libraries.Interface.Events.FileLoadListener
+use Libraries.Interface.Events.FileLoadEvent
+
+class AsynchronousFontLoader is FileLoadListener
+    
+    FontFileReader fontFileReader = undefined
+
+    action SetFontFileReader(FontFileReader reader)
+        fontFileReader = reader
+    end
+
+    action GetFontFileReader returns FontFileReader
+        return fontFileReader
+    end
+
+    /*
+
+    */
+    action OnLoad(FileLoadEvent event)
+        if fontFileReader not= undefined
+            fontFileReader:CompleteAsynchronousLoading(event:GetBinaryFileReader())
+        end
+    end
+end

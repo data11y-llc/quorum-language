@@ -539,6 +539,7 @@ class FreeTypeStrategy is FontStrategy
         end
     */
     action GetGlyph(text character) returns Glyph
+        output "char from free type"
         text char = character:GetCharacter(0)
         if glyphTable:HasKey(char)
             return glyphTable:GetValue(char):CopyGlyph()

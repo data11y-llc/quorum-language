@@ -281,7 +281,7 @@ function plugins_quorum_Libraries_Game_Graphics_Painter2D_(quorumPainter)
         
         if (!(drawable.UsingCustomTint()))
         {
-            for (var i = drawable.Get_Libraries_Game_Graphics_Drawable__Z1_(); i < drawable.Get_Libraries_Game_Graphics_Drawable__DRAWABLE_SIZE_(); i = i + drawable.Get_Libraries_Game_Graphics_Drawable__VERTEX_SIZE_())
+            for (var i = drawable.Get_Libraries_Game_Graphics_Drawable__C1_(); i < drawable.Get_Libraries_Game_Graphics_Drawable__DRAWABLE_SIZE_(); i = i + drawable.Get_Libraries_Game_Graphics_Drawable__VERTEX_SIZE_())
             {
                 drawable.SetVertex$quorum_integer$quorum_number(i, colorValue);
             }

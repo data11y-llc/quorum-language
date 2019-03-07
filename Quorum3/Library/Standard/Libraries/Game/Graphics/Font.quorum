@@ -42,6 +42,7 @@ Attribute: Example
 */
 class Font 
     FontStrategy strategy = undefined
+
     
     on create
         Setup()
@@ -56,7 +57,8 @@ class Font
         sim = os:Contains("iOS Simulator")
         device = os:Contains("iOS Device")
 
-        useFreeType = useFreeType or mac or sim or device
+//remove or mac comment when done testing.
+        useFreeType = useFreeType or sim or device or mac
 
         if useFreeType
             FreeTypeStrategy freeStrategy
@@ -78,13 +80,24 @@ class Font
 
         
     */
-    action UseQuorumStrategy
+//    action UseFreeType()
+//        output "Using Free Type"
+//        FreeTypeStrategy freeStrategy
+//        strategy = freeStrategy
+//    end
+
+    action UseQuorumStrategy() 
+        output "Using Quorum Strategy"
         QuorumStrategy quorumStrategy
         strategy = quorumStrategy
     end
 
     action SetStrategy(FontStrategy s)
         strategy = s
+    end
+
+    action GetStrategy returns FontStrategy
+        return strategy
     end
 
     /*

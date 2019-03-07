@@ -51,10 +51,6 @@ class QuorumStrategy is FontStrategy
     FontFileReader fileReader
     // object to manipulate files
     File file
-//    // ask William, I just did what he said and don't actually know the purpose of this
-//    Format format
-
-    
 
     private FontRasterizer fontRasterizer
     private TrueTypeFileInformation fileInformation
@@ -62,7 +58,6 @@ class QuorumStrategy is FontStrategy
     private boolean subFontInitialized = false
     private HashTable<text, Glyph> glyphTable
     private KerningTable kerningTable
-
     
     private integer fontHeight = 0
     private integer lineHeight = 0
@@ -72,8 +67,6 @@ class QuorumStrategy is FontStrategy
     private integer fontMaximumY = 0
     private integer fontMinimumX = 0
     private integer fontMinimumY = 0    
-
-    
 
     // These are indecies into the dataArray for ttc files
     // They are used to reference some common font styles when switching between them
@@ -103,36 +96,7 @@ class QuorumStrategy is FontStrategy
         Color color
         color = color:Black()
         SetColor(color)
-//Double check if these are needed
-
-//        format:SetValue(format:RGBA8888)
     end    
-    
-
-
-action LoadFont(text fontName)
-    File fontFile
-    text os = GetOS()
-
-    if os:Contains("Windows")
-        fontFile:SetWorkingDirectory("C:/Windows/Fonts")
-    elseif os:Contains("Mac OS X") or os:Contains("iOS Simulator")
-        fontFile:SetWorkingDirectory("/Library/Fonts")
-    elseif os:Contains("iOS Device")
-        fontFile:SetWorkingDirectory("/System/Library/Fonts/Core")
-    else
-        fontFile:SetWorkingDirectory("/system/fonts")
-    end
-
-
-   text fontPath = FindFontExtension(fontName)
-    if fontPath = ""
-        alert("No font file named " + fontName + " could be found on the system!")
-    else
-        fontFile:SetPath(fontPath)
-        LoadFont(fontFile)
-    end
-end
 
 private action LoadSubFont()
     subFontIntitialized = true
@@ -313,130 +277,132 @@ end
     private action FindFontExtension(text fontName) returns text
         File fontFile
         text os = GetOS()
-private action FindFontExtension(text fontName) returns text
-    File fontFile
-    text os = GetOS()
 
-        if os:Contains("Windows")
-            fontFile:SetWorkingDirectory("C:\Windows\Fonts")
-        elseif os:Contains("Mac OS X") or os:Contains("iOS Simulator")
-            fontFile:SetWorkingDirectory("/Library/Fonts")
-        elseif os:Contains("iOS Device")
-            fontFile:SetWorkingDirectory("/System/Library/Fonts/Core")
-        elseif os:Contains("Web Browser")
-            if FontIsAvailable(fontName)
-                return fontName + ".ttf"
-            else 
-                return ""
-            end
-        else
-            fontFile:SetWorkingDirectory("/system/fonts/")
-        end
-
-        boolean success = false
-        fontFile:SetPath(fontName + ".ttf")
-        
-        if fontFile:Exists()
-           return fontName + ".ttf"
-        else
-            fontFile:SetPath(fontName + ".ttc")
-            if fontFile:Exists()
-                return fontName + ".ttc"
+            if os:Contains("Windows")
+                fontFile:SetWorkingDirectory("C:\Windows\Fonts")
+            elseif os:Contains("Mac OS X") or os:Contains("iOS Simulator")
+                fontFile:SetWorkingDirectory("/Library/Fonts")
+            elseif os:Contains("iOS Device")
+                fontFile:SetWorkingDirectory("/System/Library/Fonts/Core")
+            elseif os:Contains("Web Browser")
+                if FontIsAvailable(fontName)
+                    return fontName + ".ttf"
+                else 
+                    return ""
+                end
             else
-                fontFile:SetPath(fontName + ".otf")
+                fontFile:SetWorkingDirectory("/system/fonts/")
+            end
+
+            boolean success = false
+            fontFile:SetPath(fontName + ".ttf")
+
+            if fontFile:Exists()
+               return fontName + ".ttf"
+            else
+                fontFile:SetPath(fontName + ".ttc")
                 if fontFile:Exists()
-                    return fontName + ".otf"
+                    return fontName + ".ttc"
                 else
-                    fontFile:SetPath(fontName + ".dfont")
+                    fontFile:SetPath(fontName + ".otf")
                     if fontFile:Exists()
-                        return fontName + ".dfont"
+                        return fontName + ".otf"
                     else
-                        return ""
+                        fontFile:SetPath(fontName + ".dfont")
+                        if fontFile:Exists()
+                            return fontName + ".dfont"
+                        else
+                            return ""
+                        end
                     end
                 end
-            end
-        end   
-end
-
-private action SetFontDimensions
-    fontEmSize = fileInformation:GetUnitsPerEm()
-    fontRasterizer:SetEmSize(fontEmSize)
-
-    fontMinimumX = Round(CalculateCoordinate(fileInformation:GetXMinimum():GetFontUnit(), me:fontSize, fontEmSize, 0))
-    fontMinimumY = Round(CalculateCoordinate(fileInformation:GetYMinimum():GetFontUnit(), me:fontSize, fontEmSize, 0))
-    fontMaximumX = Round(CalculateCoordinate(fileInformation:GetXMaximum():GetFontUnit(), me:fontSize, fontEmSize, 0))
-    fontMaximumY = Round(CalculateCoordinate(fileInformation:GetYMaximum():GetFontUnit(), me:fontSize, fontEmSize, 0))
-
-    fontHeight = fontMaximumY - fontMinimumY
-    fontWidth = fontMaximumX - fontMinimumX
-    
-    fontRasterizer:SetMaxXSize(fontWidth)
-    fontRasterizer:SetMaxYSize(fontHeight)
-end
-
-action SetSize(integer newSize)
-    me:fontSize = newSize
-    textChanged = true
-    if initialized
-        fontRasterizer:SetSize(newSize)
-        fontHeight = GetHeight()
-        EmptyGlyphTable()
-    end
-end
-
-action GetSize returns integer
-    return me:fontSize
-end
-
-action Rotate(number rotation)
-    SetAngle(angle + rotation)
-end
-
-action SetAngle(number newAngle)
-
-end
-
-action SetColor(Color newColor)
-    me:color = newColor
-    if initialized
-        EmptyGlyphTable()
-    end
-end
-
-action GetColor() returns Color
-    return me:color
-end
-
-action GetAngle returns number
-    return angle
-end
-
-//used to determine where to look for available fonts
-private action GetOS returns text
-    GameStateManager manager
-    text os = manager:GetOperatingSystem()
-    return os
-end
-
-action LoadFont(File fontFile)
-    if initialized
-        Dispose()
-        EmptyGlyphTable()
+            end   
     end
 
-    fileReader:Load(fontFile)
-    fileInformation = fileReader:GetFileInformation()
-    kerningTable = fileReader:GetKerningTable()
-    if fileInformation:GetTrueTypeCollectionFlag() = true
-        LoadSubFont()
-    end
-    SetFontDimensions()
-    initialized = true
-end
+    private action SetFontDimensions
+        fontEmSize = fileInformation:GetUnitsPerEm()
+        fontRasterizer:SetEmSize(fontEmSize)
 
-private action Dispose
-    initialized = false
-end
+        fontMinimumX = Round(CalculateCoordinate(fileInformation:GetXMinimum():GetFontUnit(), me:fontSize, fontEmSize, 0))
+        fontMinimumY = Round(CalculateCoordinate(fileInformation:GetYMinimum():GetFontUnit(), me:fontSize, fontEmSize, 0))
+        fontMaximumX = Round(CalculateCoordinate(fileInformation:GetXMaximum():GetFontUnit(), me:fontSize, fontEmSize, 0))
+        fontMaximumY = Round(CalculateCoordinate(fileInformation:GetYMaximum():GetFontUnit(), me:fontSize, fontEmSize, 0))
+
+        fontHeight = fontMaximumY - fontMinimumY
+        fontWidth = fontMaximumX - fontMinimumX
+
+        fontRasterizer:SetMaxXSize(fontWidth)
+        fontRasterizer:SetMaxYSize(fontHeight)
+    end
+
+    action SetSize(integer newSize)
+        me:fontSize = newSize
+        textChanged = true
+        if initialized
+            fontRasterizer:SetSize(newSize)
+            fontHeight = GetHeight()
+            EmptyGlyphTable()
+        end
+    end
+
+    action GetSize returns integer
+        return me:fontSize
+    end
+
+    action Rotate(number rotation)
+        SetAngle(angle + rotation)
+    end
+
+    action SetAngle(number newAngle)
+
+    end
+
+    action SetColor(Color newColor)
+        me:color = newColor
+        if initialized
+            EmptyGlyphTable()
+        end
+    end
+
+    action GetColor() returns Color
+        return me:color
+    end
+
+    action GetAngle returns number
+        return angle
+    end
+
+    //used to determine where to look for available fonts
+    private action GetOS returns text
+        GameStateManager manager
+        text os = manager:GetOperatingSystem()
+        return os
+    end
+
+    action LoadFont(File fontFile)
+        if initialized
+            Dispose()
+            EmptyGlyphTable()
+        end
+
+        fileReader:Load(fontFile, me)
+        // When the FontFileReader is done reading, it will call FinishFontLoading().
+    end
+
+    action FinishFontLoading(FontFileReader fileReader)
+        me:fileReader = fileReader
+        fileInformation = fileReader:GetFileInformation()
+        kerningTable = fileReader:GetKerningTable()
+        if fileInformation:GetTrueTypeCollectionFlag() = true
+            LoadSubFont()
+        end
+        SetFontDimensions()
+        initialized = true
+    end
+
+    private action Dispose
+        initialized = false
+    end
 
     action GetGlyph(text targetCharacter) returns Glyph
         text character = targetCharacter:GetCharacter(0)
@@ -444,6 +410,8 @@ end
             return glyphTable:GetValue(character):CopyGlyph()
         else
             BezierCurveGlyphPoints glyphPoints = fileReader:GetCharacterGlyphPoints(character)
+            output "Inside QuorumStrategy outline has points: "
+            glyphPoints:DisplayCoordinates()
             integer glyphMinimumX = Round(CalculateCoordinate(glyphPoints:GetBoundingBox():GetXMinimum(), fontSize, fontEmSize, 0))
             integer glyphMaximumX = Round(CalculateCoordinate(glyphPoints:GetBoundingBox():GetXMaximum(), fontSize, fontEmSize, 0))
             integer glyphMinimumY = Round(CalculateCoordinate(glyphPoints:GetBoundingBox():GetYMinimum(), fontSize, fontEmSize, 0))
