@@ -789,9 +789,7 @@ this.ToggleButtonToggled$quorum_Libraries_Interface_Controls_ToggleButton = func
               element.selectionEnd = position;
               element.innerHTML = text;
             }
-            // console.log("Caret Position: ", position);
-            // console.log("Current Line", linePosition);
-            console.log("TextBox text Changed");
+            // console.log("TextBox text Changed");
         }
         else if ( global_InstanceOf(control,"Libraries.Interface.Controls.TextField") )
         {
